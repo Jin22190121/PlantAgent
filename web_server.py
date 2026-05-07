@@ -10,8 +10,8 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-import google.generativeai as genai
-from google.generativeai.types import FunctionDeclaration, Tool
+from google import genai
+from google.genai import types
 
 from npp_agent.mcp_servers.simulator import SimulatorMCP
 from npp_agent.mcp_servers.procedure import ProcedureMCP
@@ -19,8 +19,8 @@ from npp_agent.mcp_servers.training  import TrainingMCP
 from npp_agent.mcp_servers.router    import MCPRouter
 
 # ── 초기화 ───────────────────────────────────────
-genai.configure(api_key=os.environ["GOOGLE_API_KEY"])
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=os.environ["GOOGLE_API_KEY"])
+MODEL_NAME = "gemini-2.5-flash"
 
 simulator = SimulatorMCP()
 procedure = ProcedureMCP()
@@ -28,18 +28,18 @@ training  = TrainingMCP()
 router    = MCPRouter([simulator, procedure, training])
 
 # ── 도구 정의 ────────────────────────────────────
-mcp_tools = Tool(function_declarations=[
-    FunctionDeclaration(
+mcp_tools = types.Tool(function_declarations=[
+    types.FunctionDeclaration(
         name="get_plant_state",
         description="현재 플랜트 전체 파라미터 상태를 반환합니다.",
         parameters={"type": "object", "properties": {}}
     ),
-    FunctionDeclaration(
+    types.FunctionDeclaration(
         name="get_alarm_list",
         description="현재 활성화된 알람 목록을 반환합니다.",
         parameters={"type": "object", "properties": {}}
     ),
-    FunctionDeclaration(
+    types.FunctionDeclaration(
         name="search_procedure",
         description="사고 상황 설명으로 관련 절차서를 검색합니다.",
         parameters={
@@ -53,7 +53,7 @@ mcp_tools = Tool(function_declarations=[
             "required": ["situation"]
         }
     ),
-    FunctionDeclaration(
+    types.FunctionDeclaration(
         name="get_caution_notes",
         description="특정 절차서의 주의사항을 반환합니다.",
         parameters={
@@ -67,7 +67,7 @@ mcp_tools = Tool(function_declarations=[
             "required": ["procedure_id"]
         }
     ),
-    FunctionDeclaration(
+    types.FunctionDeclaration(
         name="log_action",
         description="훈련생 행동을 기록합니다.",
         parameters={
@@ -112,10 +112,13 @@ async def run_agent_stream(session_id: str, question: str):
 3. 반드시 절차서 번호를 인용하여 답변하세요.
 4. 절차서에 없는 내용은 절대 생성하지 마세요."""
 
-        chat_sessions[session_id] = model.start_chat(history=[
-            {"role": "user",  "parts": [system_prompt]},
-            {"role": "model", "parts": ["네, 이해했습니다."]}
-        ])
+        chat_sessions[session_id] = client.chats.create(
+            model=MODEL_NAME,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                tools=[mcp_tools]
+            )
+        )
 
     chat = chat_sessions[session_id]
 
@@ -123,15 +126,12 @@ async def run_agent_stream(session_id: str, question: str):
         """SSE 이벤트 포맷으로 변환"""
         return f"data: {json.dumps({'type': event_type, **data}, ensure_ascii=False)}\n\n"
 
-    def send_with_retry(message, tools=None, max_retry=3):
+    def send_with_retry(message, max_retry=3):
         for attempt in range(max_retry):
             try:
-                if tools:
-                    response = chat.send_message(message, tools=tools)
-                else:
-                    response = chat.send_message(message)
-                yield response # 실제 응답 객체를 yield
-                return # 응답을 yield한 후 제너레이터 종료
+                response = chat.send_message(message)
+                yield response
+                return
             except Exception as e:
                 if "429" in str(e):
                     wait = (attempt + 1) * 15
@@ -148,10 +148,10 @@ async def run_agent_stream(session_id: str, question: str):
         yield send_event("status", {"text": "🤖 AI 분석 시작..."})
 
         response = None
-        for chunk in send_with_retry(question, tools=mcp_tools):
+        for chunk in send_with_retry(question):
             if isinstance(chunk, str):
                 yield chunk
-            else:dㅣ직
+            else:
                 response = chunk
 
         if response is None:
@@ -197,8 +197,8 @@ async def run_agent_stream(session_id: str, question: str):
                 })
 
                 tool_response_parts.append(
-                    genai.protos.Part(
-                        function_response=genai.protos.FunctionResponse(
+                    types.Part(
+                        function_response=types.FunctionResponse(
                             name=tool_name,
                             response={"result": json.dumps(
                                 result, ensure_ascii=False
@@ -211,9 +211,7 @@ async def run_agent_stream(session_id: str, question: str):
             time.sleep(2)
 
             response = None
-            for chunk in send_with_retry(
-                tool_response_parts, tools=mcp_tools
-            ):
+            for chunk in send_with_retry(tool_response_parts):
                 if isinstance(chunk, str):
                     yield chunk
                 else:
@@ -284,10 +282,9 @@ async def get_plant_status():
 
 if __name__ == "__main__":
     import uvicorn
-    # reload=True를 사용하려면 app 객체 대신 "파일명:app" 문자열을 전달해야 합니다.
     uvicorn.run(
-        "web_server:app", 
-        host="0.0.0.0", 
-        port=8000, 
+        "web_server:app",
+        host="0.0.0.0",
+        port=8000,
         reload=True
     )
