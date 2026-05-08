@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>NPP AI Agent PoC — Auto Demo</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%;
+    background: #0a1428;
+    color: #e0e8f5;
+    font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+    font-size: 13px;
+    overflow: hidden;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+  }
+  .header {
+    height: 52px;
+    background: linear-gradient(180deg, #1a2a4a, #16243d);
+    border-bottom: 1px solid #2a3d5e;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 16px;
+  }
+  .header h1 {
+    font-size: 15px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+  }
+  .header .badge {
+    background: #234060;
+    color: #4dd0e1;
+    padding: 3px 10px;
+    border-radius: 12px;
+    font-size: 11px;
+    font-weight: 500;
+  }
+  .header .spacer { flex: 1; }
+  .header .clock {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px;
+    color: #b0bec5;
+  }
+  .header .replay {
+    background: #2e5984;
+    color: white;
+    border: none;
+    padding: 7px 16px;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 12px;
+    font-weight: 500;
+  }
+  .header .replay:hover { background: #3b6e9e; }
+
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 290px 1fr 340px;
+    gap: 1px;
+    background: #2a3d5e;
+    overflow: hidden;
+  }
+  .panel {
+    background: #0f1c33;
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .panel-title {
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 1.5px;
+    color: #78909c;
+    text-transform: uppercase;
+    border-bottom: 1px solid #1e2e4a;
+    background: #0c172a;
+  }
+  .panel-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 16px;
+  }
+
+  /* LEFT: plant state */
+  .state-section {
+    margin-bottom: 16px;
+  }
+  .state-section .label {
+    font-size: 10px;
+    color: #607d8b;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .mode-display {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+    padding: 10px 12px;
+    background: #16243d;
+    border-radius: 6px;
+    border-left: 3px solid #4dd0e1;
+  }
+  .mode-display .mode-num {
+    font-size: 28px;
+    font-weight: 700;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #4dd0e1;
+    transition: color 0.5s;
+  }
+  .mode-display .mode-name {
+    font-size: 11px;
+    color: #b0bec5;
+  }
+  .param {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 6px 0;
+    border-bottom: 1px dotted #1e2e4a;
+  }
+  .param:last-child { border-bottom: none; }
+  .param .name {
+    color: #90a4ae;
+    font-size: 12px;
+  }
+  .param .value {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px;
+    font-weight: 600;
+    color: #e0e8f5;
+  }
+  .param .value.warn { color: #ffd54f; }
+  .param .value.changing { color: #4dd0e1; }
+  .pump-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  .pump {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 8px;
+    background: #16243d;
+    border-radius: 4px;
+    font-size: 11px;
+  }
+  .pump .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #455a64;
+    transition: background 0.4s, box-shadow 0.4s;
+  }
+  .pump.on .dot {
+    background: #66bb6a;
+    box-shadow: 0 0 6px #66bb6a;
+  }
+  .pump.warn .dot { background: #ffd54f; box-shadow: 0 0 6px #ffd54f; }
+
+  /* CENTER: chat */
+  .chat {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 20px;
+  }
+  .msg {
+    margin-bottom: 12px;
+    animation: fadeIn 0.4s ease-out;
+    max-width: 85%;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg .who {
+    font-size: 10px;
+    color: #607d8b;
+    margin-bottom: 4px;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .msg .bubble {
+    padding: 10px 14px;
+    border-radius: 10px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .msg.operator { margin-left: auto; }
+  .msg.operator .who { text-align: right; color: #ffb74d; }
+  .msg.operator .bubble {
+    background: #3e2f1a;
+    color: #ffe0b2;
+    border-right: 3px solid #ffb74d;
+  }
+  .msg.ai .who { color: #4dd0e1; }
+  .msg.ai .bubble {
+    background: #16243d;
+    color: #e0e8f5;
+    border-left: 3px solid #4dd0e1;
+  }
+  .msg.ai .bubble strong { color: #4dd0e1; }
+  .msg.ai .bubble .ref {
+    display: inline-block;
+    font-size: 10px;
+    background: #234060;
+    color: #4dd0e1;
+    padding: 1px 6px;
+    border-radius: 3px;
+    font-family: "SF Mono", Consolas, monospace;
+    margin: 0 2px;
+  }
+  .msg.tool {
+    max-width: 60%;
+  }
+  .msg.tool .bubble {
+    background: #0f1c33;
+    border: 1px dashed #2a3d5e;
+    color: #90a4ae;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    padding: 6px 10px;
+  }
+  .msg.tool .bubble .icon { color: #4dd0e1; margin-right: 6px; }
+  .typing {
+    display: inline-flex;
+    gap: 3px;
+    padding: 8px 0;
+  }
+  .typing .dot {
+    width: 6px;
+    height: 6px;
+    background: #4dd0e1;
+    border-radius: 50%;
+    animation: blink 1.2s infinite;
+  }
+  .typing .dot:nth-child(2) { animation-delay: 0.2s; }
+  .typing .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes blink {
+    0%, 60%, 100% { opacity: 0.25; }
+    30% { opacity: 1; }
+  }
+
+  /* RIGHT: procedure tracker */
+  .proc-header {
+    padding: 10px 14px;
+    background: #16243d;
+    border-radius: 6px;
+    margin-bottom: 12px;
+  }
+  .proc-header .id {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px;
+    color: #4dd0e1;
+    margin-bottom: 4px;
+  }
+  .proc-header .title {
+    font-size: 13px;
+    font-weight: 600;
+  }
+  .step {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+    margin-bottom: 4px;
+    border-radius: 5px;
+    border: 1px solid transparent;
+    transition: background 0.4s, border-color 0.4s;
+  }
+  .step.active {
+    background: #16243d;
+    border-color: #4dd0e1;
+    box-shadow: 0 0 0 2px rgba(77, 208, 225, 0.15);
+  }
+  .step.done { opacity: 0.6; }
+  .step .num {
+    flex-shrink: 0;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    background: #1e2e4a;
+    color: #78909c;
+    font-size: 11px;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.4s;
+  }
+  .step.active .num {
+    background: #4dd0e1;
+    color: #0a1428;
+  }
+  .step.done .num {
+    background: #66bb6a;
+    color: #0a1428;
+  }
+  .step.done .num::after { content: "✓"; }
+  .step.done .num .n { display: none; }
+  .step .text {
+    flex: 1;
+    font-size: 12px;
+    line-height: 1.4;
+    color: #b0bec5;
+  }
+  .step.active .text { color: #e0e8f5; }
+  .step .sub {
+    font-size: 10px;
+    color: #607d8b;
+    margin-top: 2px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+
+  /* alarm bar */
+  .alarm-bar {
+    height: 44px;
+    background: #0c172a;
+    border-top: 1px solid #2a3d5e;
+    display: flex;
+    align-items: center;
+    padding: 0 20px;
+    gap: 12px;
+  }
+  .alarm-bar .lbl {
+    font-size: 10px;
+    color: #607d8b;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+  }
+  .alarm-list {
+    flex: 1;
+    display: flex;
+    gap: 8px;
+    overflow: hidden;
+  }
+  .alarm {
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    animation: alarmIn 0.4s ease-out;
+    white-space: nowrap;
+  }
+  @keyframes alarmIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .alarm.info { background: #234060; color: #4dd0e1; }
+  .alarm.caution { background: #4a3a10; color: #ffd54f; }
+  .alarm.success { background: #1a3a25; color: #66bb6a; }
+  .alarm.danger { background: #4a1a1a; color: #ef5350; animation: alarmIn 0.4s ease-out, pulseDanger 1s infinite; }
+  @keyframes pulseDanger {
+    0%, 100% { box-shadow: 0 0 0 rgba(239, 83, 80, 0.6); }
+    50% { box-shadow: 0 0 12px rgba(239, 83, 80, 0.6); }
+  }
+
+  .progress-bar {
+    height: 3px;
+    background: #1e2e4a;
+    width: 100%;
+  }
+  .progress-bar .fill {
+    height: 100%;
+    background: linear-gradient(90deg, #4dd0e1, #66bb6a);
+    width: 0%;
+    transition: width 0.1s linear;
+  }
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a3d5e; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🏭 NPP AI Agent — PoC Demo</h1>
+  <span class="badge" id="scenarioLabel">Appendix 19-1 A · MODE 5 → 4</span>
+  <div class="spacer"></div>
+  <span class="clock">SIM TIME · <span id="simTime">00:00:00</span></span>
+  <button class="replay" id="replayBtn">▶ 다시 재생</button>
+</div>
+<div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+
+<div class="main">
+
+  <!-- LEFT: PLANT STATE -->
+  <div class="panel">
+    <div class="panel-title">Plant State</div>
+    <div class="panel-body">
+      <div class="state-section">
+        <div class="label">Operating Mode</div>
+        <div class="mode-display">
+          <span class="mode-num" id="modeNum">5</span>
+          <span class="mode-name" id="modeName">COLD SHUTDOWN</span>
+        </div>
+      </div>
+
+      <div class="state-section">
+        <div class="label">Reactor Coolant System</div>
+        <div class="param"><span class="name">T_RCS avg</span><span class="value" id="v_TRCS">155.0 °F</span></div>
+        <div class="param"><span class="name">P_RCS</span><span class="value" id="v_PRCS">360.0 psig</span></div>
+        <div class="param"><span class="name">Heatup rate</span><span class="value" id="v_HR">— °F/hr</span></div>
+      </div>
+
+      <div class="state-section">
+        <div class="label">Pressurizer</div>
+        <div class="param"><span class="name">Level</span><span class="value" id="v_PZRlvl">90.0 %</span></div>
+        <div class="param"><span class="name">Temperature</span><span class="value" id="v_PZRtmp">155.0 °F</span></div>
+      </div>
+
+      <div class="state-section">
+        <div class="label">Reactor Coolant Pumps</div>
+        <div class="pump-grid">
+          <div class="pump" id="rcp1"><span class="dot"></span>RCP-1</div>
+          <div class="pump" id="rcp2"><span class="dot"></span>RCP-2</div>
+          <div class="pump" id="rcp3"><span class="dot"></span>RCP-3</div>
+          <div class="pump" id="rcp4"><span class="dot"></span>RCP-4</div>
+        </div>
+      </div>
+
+      <div class="state-section">
+        <div class="label">Equipment</div>
+        <div class="pump-grid">
+          <div class="pump on" id="rhr"><span class="dot"></span>RHR Pump</div>
+          <div class="pump" id="heater"><span class="dot"></span>PZR Heater</div>
+        </div>
+      </div>
+
+      <div class="state-section">
+        <div class="label">Steam Generator</div>
+        <div class="param"><span class="name">SG Level (NR)</span><span class="value" id="v_SG">100.0 %</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: CHAT -->
+  <div class="panel">
+    <div class="panel-title">AI Agent — 운전 안내</div>
+    <div class="chat" id="chat"></div>
+  </div>
+
+  <!-- RIGHT: PROCEDURE TRACKER -->
+  <div class="panel">
+    <div class="panel-title">Procedure Tracker</div>
+    <div class="panel-body">
+      <div class="proc-header">
+        <div class="id">Appendix 19-1 · Section A</div>
+        <div class="title">Heatup: COLD SHUTDOWN → HOT SHUTDOWN</div>
+      </div>
+      <div id="steps">
+        <div class="step" data-step="1"><div class="num"><span class="n">1</span></div><div class="text">운전감독 허가 확인<div class="sub">manual permission</div></div></div>
+        <div class="step" data-step="2"><div class="num"><span class="n">2</span></div><div class="text">SG 수위 33±5% NR<div class="sub">SG_level → 33%</div></div></div>
+        <div class="step" data-step="3"><div class="num"><span class="n">3</span></div><div class="text">RCP 봉수 주입 확인<div class="sub">seal_inj_flow > 0</div></div></div>
+        <div class="step" data-step="4"><div class="num"><span class="n">4</span></div><div class="text">PZR 히터 기동<div class="sub">CAUTION ≤ 100°F/hr</div></div></div>
+        <div class="step" data-step="5"><div class="num"><span class="n">5</span></div><div class="text">증기방울 형성<div class="sub">PZR 90% → 25%</div></div></div>
+        <div class="step" data-step="6"><div class="num"><span class="n">6</span></div><div class="text">RCP 1~4 기동<div class="sub">P_RCS ≥ 320 psig</div></div></div>
+        <div class="step" data-step="7"><div class="num"><span class="n">7</span></div><div class="text">가열률 모니터링<div class="sub">≤ 100°F/hr</div></div></div>
+        <div class="step" data-step="8"><div class="num"><span class="n">8</span></div><div class="text">RHR 펌프 정지<div class="sub">RHR off</div></div></div>
+        <div class="step" data-step="9"><div class="num"><span class="n">9</span></div><div class="text">T_RCS 200°F 도달<div class="sub">→ MODE 4 진입</div></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="alarm-bar">
+  <span class="lbl">Events</span>
+  <div class="alarm-list" id="alarms"></div>
+</div>
+
+<script>
+// ─────────── Plant State ───────────
+const state = {
+  mode: 5,
+  T_RCS: 155.0,
+  P_RCS: 360.0,
+  PZR_lvl: 90.0,
+  PZR_tmp: 155.0,
+  SG: 100.0,
+  HR: null,
+  RCP: [false, false, false, false],
+  RHR: true,
+  HEATER: false,
+  simSec: 0,
+};
+
+// ─────────── DOM helpers ───────────
+const $ = id => document.getElementById(id);
+const chat = $('chat');
+const alarms = $('alarms');
+
+function fmtTime(s) {
+  const h = Math.floor(s / 3600).toString().padStart(2, '0');
+  const m = Math.floor((s % 3600) / 60).toString().padStart(2, '0');
+  const sec = Math.floor(s % 60).toString().padStart(2, '0');
+  return `${h}:${m}:${sec}`;
+}
+
+function paint() {
+  $('modeNum').textContent = state.mode;
+  $('modeName').textContent = ({5:'COLD SHUTDOWN',4:'HOT SHUTDOWN',3:'HOT STANDBY'}[state.mode]) || '';
+  $('v_TRCS').textContent = state.T_RCS.toFixed(1) + ' °F';
+  $('v_PRCS').textContent = state.P_RCS.toFixed(1) + ' psig';
+  $('v_PZRlvl').textContent = state.PZR_lvl.toFixed(1) + ' %';
+  $('v_PZRtmp').textContent = state.PZR_tmp.toFixed(1) + ' °F';
+  $('v_SG').textContent = state.SG.toFixed(1) + ' %';
+  $('v_HR').textContent = state.HR === null ? '— °F/hr' : state.HR.toFixed(1) + ' °F/hr';
+  if (state.HR !== null && state.HR > 100) $('v_HR').className = 'value warn';
+  else $('v_HR').className = 'value';
+  for (let i = 0; i < 4; i++) {
+    $('rcp' + (i+1)).classList.toggle('on', state.RCP[i]);
+  }
+  $('rhr').classList.toggle('on', state.RHR);
+  $('heater').classList.toggle('on', state.HEATER);
+  $('simTime').textContent = fmtTime(state.simSec);
+}
+
+// ─────────── tween system ───────────
+const tweens = [];
+function tween(key, to, durMs) {
+  const from = state[key];
+  tweens.push({ key, from, to, t0: performance.now(), dur: durMs });
+}
+function tickTweens(now) {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i];
+    const p = Math.min(1, (now - tw.t0) / tw.dur);
+    const eased = p < 0.5 ? 2*p*p : -1 + (4 - 2*p)*p;
+    state[tw.key] = tw.from + (tw.to - tw.from) * eased;
+    if (p >= 1) tweens.splice(i, 1);
+  }
+}
+
+// ─────────── chat / alarms ───────────
+function addChat(role, html, opts={}) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const who = role === 'operator' ? '운전원' :
+              role === 'tool' ? '도구 호출' : 'AI Agent';
+  div.innerHTML = `<div class="who">${who}</div><div class="bubble">${html}</div>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+let typingNode = null;
+function showTyping() {
+  if (typingNode) return;
+  typingNode = document.createElement('div');
+  typingNode.className = 'msg ai';
+  typingNode.innerHTML = `<div class="who">AI Agent</div><div class="bubble"><div class="typing"><div class="dot"></div><div class="dot"></div><div class="dot"></div></div></div>`;
+  chat.appendChild(typingNode);
+  chat.scrollTop = chat.scrollHeight;
+}
+function hideTyping() {
+  if (typingNode) { typingNode.remove(); typingNode = null; }
+}
+function addAlarm(level, text, ttl=8000) {
+  const div = document.createElement('div');
+  div.className = 'alarm ' + level;
+  div.textContent = text;
+  alarms.appendChild(div);
+  setTimeout(() => { div.style.transition = 'opacity 0.4s'; div.style.opacity = '0'; setTimeout(() => div.remove(), 400); }, ttl);
+}
+function setStep(n, status) {
+  document.querySelectorAll('.step').forEach(el => {
+    if (Number(el.dataset.step) === n) {
+      el.classList.remove('active', 'done');
+      if (status) el.classList.add(status);
+    }
+  });
+}
+
+// ─────────── Scenario (timeline in ms of real time) ───────────
+const scenario = [
+  // Phase 0 — init
+  { t: 600, fn: () => addChat('operator', '기동 시작. 콜드셧다운 상태에서 MODE 4 진입까지 안내해주세요.') },
+  { t: 1300, fn: () => showTyping() },
+  { t: 2000, fn: () => { hideTyping(); addChat('tool', '<span class="icon">⚙</span>get_plant_state()'); } },
+  { t: 2700, fn: () => addChat('tool', '<span class="icon">⚙</span>search_by_mode_transition(from=5, to=4)') },
+  { t: 3500, fn: () => addChat('ai', '현재 <strong>MODE 5 (COLD SHUTDOWN)</strong> 확인. T_RCS 155°F, P_RCS 360 psig, PZR 90% (solid). <span class="ref">App19-1-A</span> 절차에 따라 진행합니다.') },
+
+  // Step 1
+  { t: 4800, fn: () => setStep(1, 'active') },
+  { t: 5000, fn: () => addChat('ai', '<strong>Step 1.</strong> 운전감독으로부터 기동 허가 받으셨습니까? <span class="ref">App19-1-A-1</span>') },
+  { t: 6500, fn: () => addChat('operator', '예, 허가 완료.') },
+  { t: 7000, fn: () => { setStep(1, 'done'); addAlarm('info', 'Step 1 완료'); } },
+
+  // Step 2
+  { t: 7400, fn: () => { setStep(2, 'active'); addChat('ai', '<strong>Step 2.</strong> SG 수위를 wet layup 100% → <strong>33±5% NR</strong>로 조정합니다. <span class="ref">App19-1-A-2</span>'); } },
+  { t: 8200, fn: () => addChat('tool', '<span class="icon">⚙</span>set_sg_level_target(33)') },
+  { t: 8400, fn: () => tween('SG', 33, 4500) },
+
+  // Step 3
+  { t: 9500, fn: () => { setStep(3, 'active'); addChat('ai', '<strong>Step 3.</strong> RCP 봉수 주입 유량 확인. seal_inj = 8 gpm — <span style="color:#66bb6a">정상</span>. <span class="ref">App19-1-A-3</span>'); } },
+  { t: 10800, fn: () => { setStep(2, 'done'); setStep(3, 'done'); addAlarm('info', 'Step 2, 3 완료'); } },
+
+  // Step 4 — heater
+  { t: 11400, fn: () => { setStep(4, 'active'); addChat('ai', '<strong>Step 4.</strong> 가압기 히터 기동합니다.<br><span style="color:#ffd54f">⚠ CAUTION:</span> 가열률 ≤ <strong>100°F/hr</strong>, ΔT(PZR-spray) ≤ 320°F. <span class="ref">App19-1-A-4</span>'); } },
+  { t: 12300, fn: () => addChat('tool', '<span class="icon">⚙</span>set_pzr_heater(on=true)') },
+  { t: 12500, fn: () => { state.HEATER = true; addAlarm('caution', 'PZR 가열률 모니터링 활성'); } },
+  { t: 12700, fn: () => tween('PZR_tmp', 230, 4000) },
+
+  // Step 5 — steam bubble
+  { t: 13800, fn: () => { setStep(4, 'done'); setStep(5, 'active'); addChat('ai', '<strong>Step 5.</strong> 증기방울 형성 진행 중. PZR 온도 상승 → 포화온도 428°F 도달 시 수위 25%로 감소. <span class="ref">App19-1-A-5</span>'); } },
+  { t: 17000, fn: () => tween('PZR_tmp', 428, 4500) },
+  { t: 17200, fn: () => addChat('ai', 'PZR 온도 230°F 통과. 충전 20 gpm / 방출 20 gpm 균형 유지 중.') },
+  { t: 21500, fn: () => { addChat('ai', '✓ 포화온도 <strong>428°F</strong> 도달. PZR 수위 90% → 25% 감소 시작.'); } },
+  { t: 21800, fn: () => tween('PZR_lvl', 25, 4000) },
+  { t: 26000, fn: () => { setStep(5, 'done'); addAlarm('success', '✓ Steam bubble 형성 완료'); addChat('ai', '✓ Steam bubble 형성 완료. PZR 수위 25%, P_RCS 365 psig 안정.'); } },
+
+  // Step 6 — RCPs
+  { t: 27000, fn: () => { setStep(6, 'active'); addChat('ai', '<strong>Step 6.</strong> RCP 1 ~ 4 순차 기동. 각 펌프 안정화 확인 후 다음 펌프 기동. <span class="ref">App19-1-A-6</span>'); } },
+  { t: 27600, fn: () => addChat('tool', '<span class="icon">⚙</span>start_rcp(1)') },
+  { t: 27800, fn: () => state.RCP[0] = true },
+  { t: 28400, fn: () => addChat('tool', '<span class="icon">⚙</span>start_rcp(2)') },
+  { t: 28600, fn: () => state.RCP[1] = true },
+  { t: 29200, fn: () => addChat('tool', '<span class="icon">⚙</span>start_rcp(3)') },
+  { t: 29400, fn: () => state.RCP[2] = true },
+  { t: 30000, fn: () => addChat('tool', '<span class="icon">⚙</span>start_rcp(4)') },
+  { t: 30200, fn: () => { state.RCP[3] = true; addAlarm('success', 'RCP 4기 운전 중'); } },
+  { t: 30600, fn: () => { state.HR = 0; tween('HR', 50, 4000); } },
+  { t: 31000, fn: () => tween('T_RCS', 165, 5000) },
+
+  // Step 7 — heatup rate
+  { t: 31600, fn: () => { setStep(6, 'done'); setStep(7, 'active'); addChat('ai', '<strong>Step 7.</strong> RCP 4기 + 붕괴열 → 자연 가열률 약 <strong>50°F/hr</strong> (제한 100°F/hr 이내, 정상). <span class="ref">App19-1-A-7</span>'); } },
+
+  // Step 8 — RHR off
+  { t: 33800, fn: () => { setStep(7, 'done'); setStep(8, 'active'); addChat('ai', '<strong>Step 8.</strong> 모든 RCP 운전 중 — RHR 펌프 정지합니다. <span class="ref">App19-1-A-8</span>'); } },
+  { t: 34800, fn: () => addChat('tool', '<span class="icon">⚙</span>set_rhr_pump(on=false)') },
+  { t: 35000, fn: () => { state.RHR = false; addAlarm('info', 'RHR pump OFF — RCS 자연 가열 단계'); } },
+
+  // Step 9 — reach 200°F
+  { t: 36200, fn: () => { setStep(8, 'done'); setStep(9, 'active'); addChat('ai', '<strong>Step 9.</strong> T_RCS 200°F까지 자연 가열 진행. ETA ≈ 30분 (시뮬 가속 진행). <span class="ref">App19-1-A-9</span>'); } },
+  { t: 37000, fn: () => tween('T_RCS', 200, 8000) },
+
+  // MODE transition
+  { t: 45200, fn: () => { addAlarm('success', '✓ T_RCS = 200°F 도달'); addChat('ai', '✓ T_RCS <strong>200°F</strong> 도달. <span class="ref">Checklist No.1</span> 항목 자동 점검 결과: 모두 충족.') },
+  },
+  { t: 47000, fn: () => { state.mode = 4; addAlarm('success', 'MODE 5 → MODE 4 전환 완료'); addChat('ai', '🎯 <strong>MODE 4 (HOT SHUTDOWN) 진입 완료.</strong><br>Appendix 19-1 A절 종료. 다음 단계는 B절 (MODE 4 → 3)입니다.'); } },
+  { t: 47500, fn: () => setStep(9, 'done') },
+  { t: 49000, fn: () => addChat('operator', '훌륭합니다. B절 진행 전 잠시 휴식.') },
+];
+
+// ─────────── Engine ───────────
+let scenarioStart = null;
+let scenarioIdx = 0;
+let totalDuration = 50000;
+let simRate = 60; // 1 real sec = 60 sim sec
+let lastFrameMs = null;
+
+function reset() {
+  Object.assign(state, {
+    mode: 5, T_RCS: 155, P_RCS: 360, PZR_lvl: 90, PZR_tmp: 155,
+    SG: 100, HR: null, RCP: [false,false,false,false],
+    RHR: true, HEATER: false, simSec: 0,
+  });
+  tweens.length = 0;
+  scenarioIdx = 0;
+  scenarioStart = performance.now();
+  lastFrameMs = scenarioStart;
+  chat.innerHTML = '';
+  alarms.innerHTML = '';
+  document.querySelectorAll('.step').forEach(el => el.classList.remove('active', 'done'));
+}
+
+function frame(now) {
+  const elapsed = now - scenarioStart;
+  // fire scenario events
+  while (scenarioIdx < scenario.length && scenario[scenarioIdx].t <= elapsed) {
+    try { scenario[scenarioIdx].fn(); } catch (e) { console.error(e); }
+    scenarioIdx++;
+  }
+  // tweens
+  tickTweens(now);
+  // sim time advances at simRate× real time
+  const dt = (now - lastFrameMs) / 1000;
+  state.simSec += dt * simRate;
+  lastFrameMs = now;
+  // pressure follows PZR temp once steam bubble forms (rough)
+  if (state.PZR_tmp > 250) {
+    // saturation pressure approximation, ramps to ~365-400
+    const t = Math.min(1, (state.PZR_tmp - 250) / 200);
+    state.P_RCS = 360 + 20 * t;
+  }
+  paint();
+  $('progressFill').style.width = Math.min(100, (elapsed / totalDuration) * 100) + '%';
+  if (elapsed < totalDuration + 2000) {
+    requestAnimationFrame(frame);
+  }
+}
+
+$('replayBtn').addEventListener('click', () => { reset(); requestAnimationFrame(frame); });
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
