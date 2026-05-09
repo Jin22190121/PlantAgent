@@ -1,0 +1,90 @@
+"""LangGraph state-machine builder.
+
+Compiles AgentState graph with:
+  • SqliteSaver checkpointer (data/checkpoints/agent.sqlite) for HITL session
+    resilience across interrupts/disconnects.
+  • interrupt() native HITL via approval_gate node.
+"""
+from __future__ import annotations
+import os
+from pathlib import Path
+from typing import Callable
+
+from langgraph.graph import StateGraph, START, END
+
+from npp_agent.llm import get_chat_model
+from .state import AgentState
+from .nodes import (
+    make_assess_state,
+    make_retrieve_procedure,
+    make_plan_action,
+    approval_gate,
+    make_execute_action,
+    make_verify_outcome,
+    make_log_step,
+    respond,
+)
+
+
+def _make_checkpointer():
+    """Try sqlite saver; fall back to in-memory if sqlite extras not installed."""
+    Path("data/checkpoints").mkdir(parents=True, exist_ok=True)
+    db_path = "data/checkpoints/agent.sqlite"
+    try:
+        from langgraph.checkpoint.sqlite import SqliteSaver
+        import sqlite3
+        conn = sqlite3.connect(db_path, check_same_thread=False)
+        return SqliteSaver(conn)
+    except Exception:
+        from langgraph.checkpoint.memory import MemorySaver
+        return MemorySaver()
+
+
+def _route_after_plan(state: AgentState) -> str:
+    """If planner produced an actionable proposal → approval_gate. Else end."""
+    pa = state.get("proposed_action") or {}
+    if state.get("done") and not pa.get("tool"):
+        return "respond"
+    if pa.get("tool"):
+        return "approval_gate"
+    return "respond"
+
+
+def _route_after_approval(state: AgentState) -> str:
+    if state.get("approval_status") in ("approved", "modified"):
+        return "execute_action"
+    return "respond"
+
+
+def build_graph(router, thread_id_resolver: Callable[[dict], str] | None = None):
+    """Compile the agent graph. Returns the executable graph."""
+    llm = get_chat_model()
+    if thread_id_resolver is None:
+        thread_id_resolver = lambda s: s.get("_session_id", "default")
+
+    g = StateGraph(AgentState)
+    g.add_node("assess_state",       make_assess_state(router))
+    g.add_node("retrieve_procedure", make_retrieve_procedure(router))
+    g.add_node("plan_action",        make_plan_action(llm))
+    g.add_node("approval_gate",      approval_gate)
+    g.add_node("execute_action",     make_execute_action(router))
+    g.add_node("verify_outcome",     make_verify_outcome(router))
+    g.add_node("log_step",           make_log_step(router, thread_id_resolver))
+    g.add_node("respond",            respond)
+
+    g.add_edge(START,                "assess_state")
+    g.add_edge("assess_state",       "retrieve_procedure")
+    g.add_edge("retrieve_procedure", "plan_action")
+    g.add_conditional_edges("plan_action",  _route_after_plan,
+                             {"approval_gate": "approval_gate",
+                              "respond": "respond"})
+    g.add_conditional_edges("approval_gate", _route_after_approval,
+                             {"execute_action": "execute_action",
+                              "respond": "respond"})
+    g.add_edge("execute_action",     "verify_outcome")
+    g.add_edge("verify_outcome",     "log_step")
+    g.add_edge("log_step",           "respond")
+    g.add_edge("respond",            END)
+
+    checkpointer = _make_checkpointer()
+    return g.compile(checkpointer=checkpointer)

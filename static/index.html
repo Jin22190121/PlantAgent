@@ -280,6 +280,88 @@
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #2a3d5e; border-radius: 3px; }
+
+  /* HITL approval modal */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(5, 10, 20, 0.85);
+    z-index: 999;
+    display: none;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(3px);
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #16243d;
+    border: 1px solid #4dd0e1;
+    border-radius: 10px;
+    width: 560px; max-width: 92vw;
+    box-shadow: 0 0 30px rgba(77, 208, 225, 0.3);
+    animation: fadeIn 0.3s ease-out;
+  }
+  .modal-head {
+    padding: 14px 20px;
+    border-bottom: 1px solid #2a3d5e;
+    background: linear-gradient(180deg, #1a3a5a, #16243d);
+    border-radius: 10px 10px 0 0;
+  }
+  .modal-head .title {
+    font-size: 14px; font-weight: 600; color: #ffd54f;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .modal-head .sub {
+    font-size: 11px; color: #78909c; margin-top: 4px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+  .modal-body { padding: 16px 20px; max-height: 60vh; overflow-y: auto; }
+  .modal-row { margin-bottom: 12px; }
+  .modal-row .lbl {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .modal-row .val {
+    font-size: 13px; line-height: 1.5;
+    background: #0f1c33; padding: 8px 12px;
+    border-radius: 5px; border-left: 2px solid #4dd0e1;
+    word-break: break-word;
+  }
+  .modal-row .val.tool-call {
+    font-family: "SF Mono", Consolas, monospace;
+    color: #4dd0e1;
+  }
+  .modal-row .val.cite {
+    background: #234060; color: #4dd0e1; font-weight: 500;
+    display: inline-block; padding: 4px 10px;
+  }
+  .caution-list {
+    background: #4a3a10; border-left: 3px solid #ffd54f;
+    padding: 8px 12px; border-radius: 4px;
+    color: #ffe082; font-size: 12px;
+  }
+  .caution-list ul { margin: 0; padding-left: 16px; }
+  .modal-actions {
+    padding: 14px 20px;
+    border-top: 1px solid #2a3d5e;
+    display: flex; gap: 8px; justify-content: flex-end;
+    background: #0c172a;
+    border-radius: 0 0 10px 10px;
+  }
+  .modal-actions button {
+    padding: 8px 16px; border: none; border-radius: 5px;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+  }
+  .btn-approve { background: #2e7d32; color: white; }
+  .btn-approve:hover { background: #388e3c; }
+  .btn-reject { background: #6e2e2e; color: white; }
+  .btn-reject:hover { background: #8e3a3a; }
+  .btn-modify { background: #e65100; color: white; }
+  .btn-modify:hover { background: #ef6c00; }
+  .ack {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px; font-size: 11px; color: #ffd54f;
+  }
+  .ack input[type="checkbox"] { accent-color: #ffd54f; }
 </style>
 </head>
 <body>
@@ -385,6 +467,47 @@
 <div class="alarm-bar">
   <span class="lbl">Events</span>
   <div class="alarm-list" id="alarms"></div>
+</div>
+
+<!-- HITL approval modal -->
+<div class="modal-backdrop" id="approvalModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="title">⚠ TIER-E 조작 승인 요청 (Human-in-the-Loop)</div>
+      <div class="sub" id="apvStep">App19-1-A-?</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-row">
+        <div class="lbl">인용 절차</div>
+        <div class="val cite" id="apvCite">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">제안 행동</div>
+        <div class="val tool-call" id="apvTool">tool(args)</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">근거 (AI 판단)</div>
+        <div class="val" id="apvRationale">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">예상 결과</div>
+        <div class="val" id="apvExpected">—</div>
+      </div>
+      <div class="modal-row" id="apvCautionsRow" style="display:none">
+        <div class="lbl">⚠ CAUTION / NOTE</div>
+        <div class="caution-list"><ul id="apvCautions"></ul></div>
+        <div class="ack">
+          <input type="checkbox" id="apvAck">
+          <label for="apvAck">CAUTION을 확인했고 진행 여건을 충족합니다.</label>
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-reject" onclick="approve(false)">✗ 거부</button>
+      <button class="btn-modify" onclick="modifyAction()">✎ 인자 수정</button>
+      <button class="btn-approve" id="apvApproveBtn" onclick="approve(true)">✓ 승인 후 실행</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -548,6 +671,40 @@ function quick(t) {
   document.getElementById('input').value = t;
   send();
 }
+async function readSSE(res, onEvent) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream:true});
+    const lines = buf.split('\n\n');
+    buf = lines.pop();
+    for (const ln of lines) {
+      if (!ln.startsWith('data: ')) continue;
+      try { onEvent(JSON.parse(ln.slice(6))); } catch(_) {}
+    }
+  }
+}
+function handleEvent(d) {
+  if (d.type === 'status')
+    addMsg('status', escapeHtml(d.text));
+  else if (d.type === 'graph_node')
+    addMsg('tool', `<span class="icon">▸</span>node:${escapeHtml(d.node)}`);
+  else if (d.type === 'message')
+    addMsg('ai', highlightCite(escapeHtml(d.text)));
+  else if (d.type === 'answer')
+    addMsg('ai', highlightCite(escapeHtml(d.text)));
+  else if (d.type === 'approval_request')
+    showApprovalModal(d);
+  else if (d.type === 'error')
+    addMsg('error', escapeHtml(d.text));
+}
+function highlightCite(s) {
+  return s.replace(/(App19-1-A-\d+)/g,
+    '<code style="background:#234060;color:#4dd0e1;padding:1px 6px;border-radius:3px;font-size:11px">$1</code>');
+}
 async function send() {
   const inp = document.getElementById('input');
   const text = inp.value.trim();
@@ -555,41 +712,87 @@ async function send() {
   inp.value = '';
   document.getElementById('sendBtn').disabled = true;
   addMsg('operator', escapeHtml(text));
-
   try {
     const res = await fetch('/chat/stream', {
       method:'POST', headers:{'Content-Type':'application/json'},
       body: JSON.stringify({session_id: SESSION_ID, message: text})
     });
-    const reader = res.body.getReader();
-    const dec = new TextDecoder();
-    let buf = '';
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
-      buf += dec.decode(value, {stream:true});
-      const lines = buf.split('\n\n');
-      buf = lines.pop();
-      for (const ln of lines) {
-        if (!ln.startsWith('data: ')) continue;
-        try {
-          const d = JSON.parse(ln.slice(6));
-          if (d.type==='status') addMsg('status', escapeHtml(d.text));
-          else if (d.type==='tool_start') addMsg('tool',
-            `<span class="icon">⚙</span>${escapeHtml(d.tool)}(${escapeHtml(d.args||'')})`);
-          else if (d.type==='tool_done') addMsg('tool',
-            `<span class="icon" style="color:#66bb6a">✓</span>${escapeHtml(d.tool)} → ${escapeHtml(d.summary||'')}`);
-          else if (d.type==='answer') addMsg('ai',
-            escapeHtml(d.text).replace(/(App19-1-A-\d+)/g,'<code style="background:#234060;color:#4dd0e1;padding:1px 5px;border-radius:3px;font-size:11px">$1</code>'));
-          else if (d.type==='error') addMsg('error', escapeHtml(d.text));
-        } catch(_){}
-      }
-    }
-  } catch(e) {
-    addMsg('error', 'Network error: ' + e.message);
-  }
+    await readSSE(res, handleEvent);
+  } catch(e) { addMsg('error', 'Network error: ' + e.message); }
   document.getElementById('sendBtn').disabled = false;
   inp.focus();
+}
+
+// ─────────── HITL approval modal ───────────
+let pendingApproval = null;
+function showApprovalModal(d) {
+  pendingApproval = d;
+  document.getElementById('apvStep').textContent = d.cited_step_id || '(step 미인용)';
+  document.getElementById('apvCite').textContent = d.cited_step_id || '(none)';
+  document.getElementById('apvTool').textContent = `${d.tool}(${JSON.stringify(d.args || {})})`;
+  document.getElementById('apvRationale').textContent = d.rationale || '(설명 없음)';
+  document.getElementById('apvExpected').textContent = d.expected_outcome || '(예상 결과 미기재)';
+  const cautRow = document.getElementById('apvCautionsRow');
+  const cautUl = document.getElementById('apvCautions');
+  cautUl.innerHTML = '';
+  if (Array.isArray(d.cautions) && d.cautions.length) {
+    cautRow.style.display = '';
+    d.cautions.forEach(c => {
+      const li = document.createElement('li');
+      li.textContent = c; cautUl.appendChild(li);
+    });
+    document.getElementById('apvAck').checked = false;
+    document.getElementById('apvApproveBtn').disabled = true;
+  } else {
+    cautRow.style.display = 'none';
+    document.getElementById('apvApproveBtn').disabled = false;
+  }
+  document.getElementById('approvalModal').classList.add('show');
+}
+function hideApprovalModal() {
+  document.getElementById('approvalModal').classList.remove('show');
+  pendingApproval = null;
+}
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'apvAck') {
+    document.getElementById('apvApproveBtn').disabled = !e.target.checked;
+  }
+});
+async function approve(yes) {
+  if (!pendingApproval) return;
+  const reason = yes ? 'operator approved' : (prompt('거부 사유:', 'reject') || 'rejected');
+  hideApprovalModal();
+  addMsg('operator', yes ? '✓ 승인' : '✗ 거부 — ' + escapeHtml(reason));
+  try {
+    const res = await fetch('/chat/approve', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        session_id: SESSION_ID, approved: yes, reason: reason,
+      })
+    });
+    await readSSE(res, handleEvent);
+  } catch(e) { addMsg('error', 'approval error: ' + e.message); }
+}
+async function modifyAction() {
+  if (!pendingApproval) return;
+  const cur = JSON.stringify(pendingApproval.args || {}, null, 2);
+  const edit = prompt('수정할 인자(JSON):', cur);
+  if (edit === null) return;
+  let parsed;
+  try { parsed = JSON.parse(edit); }
+  catch(e) { alert('JSON 파싱 실패: ' + e.message); return; }
+  hideApprovalModal();
+  addMsg('operator', '✎ 인자 수정 후 승인: <code>' + escapeHtml(JSON.stringify(parsed)) + '</code>');
+  try {
+    const res = await fetch('/chat/approve', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        session_id: SESSION_ID, approved: true,
+        reason: 'operator modified', modified_args: parsed,
+      })
+    });
+    await readSSE(res, handleEvent);
+  } catch(e) { addMsg('error', 'approval error: ' + e.message); }
 }
 document.getElementById('input').addEventListener('keydown', e => {
   if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); }
@@ -598,7 +801,8 @@ document.getElementById('input').addEventListener('keydown', e => {
 // ─────────── Init ───────────
 fetch('/health').then(r=>r.json()).then(h => {
   const b = document.getElementById('llmBadge');
-  if (h.llm) { b.textContent = '🤖 LLM: Gemini'; }
+  const avail = h.llm && h.llm.any_available;
+  if (avail) { b.textContent = '🤖 LangGraph + ' + (h.llm.primary || '?'); }
   else { b.textContent = '⚠ LLM 비활성 (시뮬레이터만)'; b.className='badge warn'; }
 });
 addMsg('status', '실시간 시뮬레이션 시작. 좌측 상태 패널과 연동됩니다.');
