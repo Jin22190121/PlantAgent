@@ -1,137 +1,140 @@
+"""Procedure MCP — RAG search over Appendix 19-1 §A normal-ops steps.
+
+Replaces the original emergency-procedure (E-0/E-1/ECA-0.0) collection.
+Uses ChromaDB for semantic search and a setpoint lookup for fast direct
+addressing.
+"""
+from typing import Any, Dict, List, Optional
+
 import chromadb
 
+from npp_agent.ingest.procedures_data import APPENDIX_19_1_A, ACTION_TO_STEP_ID
 
-# 절차서 샘플 데이터
-PROCEDURES = [
-    {
-        "id": "E-0-1.1",
-        "text": """절차서 E-0-1.1: 원자로 정지 확인
-조건: 원자로 자동 정지 신호 발생 또는 수동 정지
-행동: 모든 제어봉 완전 삽입 확인. 핵 계측기 지시치 감소 확인.
-주의사항: 제어봉 미삽입 시 즉시 수동 삽입""",
-        "category": "일반정지"
-    },
-    {
-        "id": "E-1-1.1",
-        "text": """절차서 E-1-1.1: ECCS 자동 기동 확인
-조건: RCS 압력이 1700 psia 미만 감소 또는 SI 신호 발생
-행동: SI 펌프 자동 기동 확인. 30초 이내 미확인 시 수동 기동.
-주의사항: ECCS 절대 무단 차단 금지""",
-        "category": "LOCA"
-    },
-    {
-        "id": "E-1-1.2",
-        "text": """절차서 E-1-1.2: 격납건물 격리 확인
-조건: ECCS 기동 확인 후
-행동: HI 신호 발생 확인. 격리 미완료 시 수동 격리.
-주의사항: 격납건물 압력 설계 압력 초과 금지""",
-        "category": "LOCA"
-    },
-    {
-        "id": "E-1-2.1",
-        "text": """절차서 E-1-2.1: RCS 압력 관리
-조건: RCS 압력 1200 psia 미만
-행동: 가압기 살수 밸브 닫힘 확인. 가압기 히터 차단.
-주의사항: RCS 압력 급격 감소 시 파단 위치 파악 시도""",
-        "category": "LOCA"
-    },
-    {
-        "id": "ECA-0.0-1.1",
-        "text": """절차서 ECA-0.0-1.1: 비상디젤발전기 수동 기동
-조건: 소외전원 상실 및 EDG 자동 기동 실패
-행동: EDG-1 또는 EDG-2 수동 기동. 전압 4160V, 주파수 60Hz 확인.
-주의사항: 배터리 용량 8시간 한계. 비필수 부하 즉시 차단""",
-        "category": "SBO"
-    },
-    {
-        "id": "ECA-0.0-1.2",
-        "text": """절차서 ECA-0.0-1.2: 증기구동 보조급수펌프 기동
-조건: EDG 기동 실패 또는 소내 전원 전체 상실
-행동: TDAFWP 자동 기동 확인. 미기동 시 수동 기동. SG 수위 확인.
-주의사항: SG 수위 10% 미만 시 즉시 급수""",
-        "category": "SBO"
-    },
-]
+
+COLLECTION_NAME = "normal_procedures_app19_1_a"
 
 
 class ProcedureMCP:
-    """
-    절차서 RAG 검색 MCP 서버
-    ChromaDB에 절차서를 임베딩하여 유사도 검색
-    """
     SERVER_NAME = "procedure-mcp"
 
     def __init__(self):
         self.client = chromadb.Client()
         self.collection = self.client.get_or_create_collection(
-            name="procedures"
+            name=COLLECTION_NAME
         )
-        self._load_procedures()
+        self.steps_by_id = {s["id"]: s for s in APPENDIX_19_1_A}
+        self._load()
 
-    def _load_procedures(self):
-        """절차서 데이터를 벡터DB에 로드"""
+    # ── ingestion ────────────────────────────────
+    def _load(self):
         if self.collection.count() > 0:
             return
+        ids = [s["id"] for s in APPENDIX_19_1_A]
+        docs = [
+            f"[{s['id']}] {s['title']}\n{s['text']}\n"
+            f"PARAMETERS: {', '.join(s['parameters']) or 'n/a'}\n"
+            f"SETPOINTS: {s['setpoints']}\n"
+            f"CAUTIONS: {' | '.join(s['cautions']) or 'none'}"
+            for s in APPENDIX_19_1_A
+        ]
+        metas = [
+            {
+                "step_no": s["step_no"],
+                "mode_from": s["mode_from"],
+                "mode_to": s["mode_to"],
+                "title": s["title"],
+                "expected_action": s["expected_action"],
+            }
+            for s in APPENDIX_19_1_A
+        ]
+        self.collection.add(documents=docs, ids=ids, metadatas=metas)
+        print(f"[procedure] loaded {self.collection.count()} normal-ops steps")
 
-        self.collection.add(
-            documents=[p["text"] for p in PROCEDURES],
-            ids=[p["id"] for p in PROCEDURES],
-            metadatas=[{"category": p["category"]} for p in PROCEDURES]
-        )
-        print(f"✅ 절차서 {self.collection.count()}개 로드 완료")
-
+    # ── tool catalog ─────────────────────────────
     def list_tools(self):
         return [
-            {
-                "name": "search_procedure",
-                "description": "상황 설명으로 관련 절차서 RAG 검색"
-            },
-            {
-                "name": "get_caution_notes",
-                "description": "특정 절차서 ID의 주의사항 반환"
-            }
+            {"name": "search_procedure",
+             "description": "상황 설명으로 절차서 RAG 검색 (top-k)"},
+            {"name": "get_step",
+             "description": "step ID로 단일 절차 step 조회"},
+            {"name": "get_next_step",
+             "description": "현재 step 다음 step 반환"},
+            {"name": "search_by_mode_transition",
+             "description": "MODE 전환(from→to)에 해당하는 절차들 반환"},
+            {"name": "get_cautions",
+             "description": "특정 step의 CAUTION/NOTE 반환"},
+            {"name": "get_step_by_action",
+             "description": "expected_action(예: set_pzr_heater)에 매핑된 step 반환"},
         ]
 
-    def call_tool(self, tool_name: str, args: dict):
+    # ── dispatcher ───────────────────────────────
+    def call_tool(self, tool_name: str, args: Dict[str, Any]):
         if tool_name == "search_procedure":
-            return self._search_procedure(
-                args.get("situation", ""),
-                args.get("n_results", 2)
-            )
-        elif tool_name == "get_caution_notes":
-            return self._get_caution_notes(
-                args.get("procedure_id", "")
-            )
+            return self._search(args.get("situation", ""),
+                                int(args.get("n_results", 3)))
+        if tool_name == "get_step":
+            return self._get(args.get("step_id", ""))
+        if tool_name == "get_next_step":
+            return self._next(args.get("step_id", ""))
+        if tool_name == "search_by_mode_transition":
+            return self._by_mode(int(args.get("from_mode", 5)),
+                                 int(args.get("to_mode", 4)))
+        if tool_name == "get_cautions":
+            return self._cautions(args.get("step_id", ""))
+        if tool_name == "get_step_by_action":
+            return self._by_action(args.get("action", ""))
         return {"error": f"알 수 없는 도구: {tool_name}"}
 
-    def _search_procedure(self, situation: str, n_results: int):
-        results = self.collection.query(
-            query_texts=[situation],
-            n_results=n_results
-        )
-        procedures = []
-        for i, doc in enumerate(results["documents"][0]):
-            procedures.append({
-                "id": results["ids"][0][i],
-                "content": doc
+    # ── implementations ──────────────────────────
+    def _search(self, situation: str, n: int):
+        n = max(1, min(n, len(APPENDIX_19_1_A)))
+        if not situation:
+            return {"query": "", "found": 0, "procedures": []}
+        res = self.collection.query(query_texts=[situation], n_results=n)
+        out: List[Dict] = []
+        for i, doc in enumerate(res["documents"][0]):
+            sid = res["ids"][0][i]
+            meta = res["metadatas"][0][i]
+            step = self.steps_by_id.get(sid, {})
+            out.append({
+                "id": sid,
+                "step_no": meta.get("step_no"),
+                "title": meta.get("title"),
+                "expected_action": meta.get("expected_action"),
+                "text": step.get("text"),
+                "setpoints": step.get("setpoints", {}),
             })
-        return {
-            "query": situation,
-            "found": len(procedures),
-            "procedures": procedures
-        }
+        return {"query": situation, "found": len(out), "procedures": out}
 
-    def _get_caution_notes(self, procedure_id: str):
-        results = self.collection.query(
-            query_texts=[procedure_id],
-            n_results=1
-        )
-        if results["documents"][0]:
-            content = results["documents"][0][0]
-            lines = content.split("\n")
-            cautions = [l for l in lines if "주의" in l]
-            return {
-                "procedure_id": procedure_id,
-                "cautions": cautions
-            }
-        return {"error": "절차서를 찾을 수 없습니다."}
+    def _get(self, step_id: str):
+        s = self.steps_by_id.get(step_id)
+        if not s:
+            return {"error": f"step not found: {step_id}"}
+        return s
+
+    def _next(self, step_id: str):
+        s = self.steps_by_id.get(step_id)
+        if not s:
+            return {"error": f"step not found: {step_id}"}
+        nxt = f"App19-1-A-{s['step_no'] + 1}"
+        return self.steps_by_id.get(nxt, {"end_of_section": True})
+
+    def _by_mode(self, from_mode: int, to_mode: int):
+        matches = [s for s in APPENDIX_19_1_A
+                   if s["mode_from"] == from_mode and s["mode_to"] == to_mode]
+        return {"from_mode": from_mode, "to_mode": to_mode,
+                "found": len(matches),
+                "procedures": [{"id": s["id"], "step_no": s["step_no"],
+                                "title": s["title"]} for s in matches]}
+
+    def _cautions(self, step_id: str):
+        s = self.steps_by_id.get(step_id)
+        if not s:
+            return {"error": f"step not found: {step_id}"}
+        return {"step_id": step_id, "cautions": s["cautions"]}
+
+    def _by_action(self, action: str):
+        sid = ACTION_TO_STEP_ID.get(action)
+        if not sid:
+            return {"error": f"no procedure mapped to action: {action}"}
+        return self.steps_by_id[sid]
