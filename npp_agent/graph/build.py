@@ -12,7 +12,8 @@ from typing import Callable
 
 from langgraph.graph import StateGraph, START, END
 
-from npp_agent.llm import get_chat_model
+from npp_agent.llm import get_chat_model, get_chat_model_with_fallback
+from npp_agent.observability import langfuse_callbacks, langfuse_status
 from .state import AgentState
 from .nodes import (
     make_assess_state,
@@ -58,7 +59,21 @@ def _route_after_approval(state: AgentState) -> str:
 
 def build_graph(router, thread_id_resolver: Callable[[dict], str] | None = None):
     """Compile the agent graph. Returns the executable graph."""
-    llm = get_chat_model()
+    # Attach LangFuse callback if env-configured
+    callbacks = langfuse_callbacks()
+    # Auto-fallback when secondary providers' env keys are present
+    try:
+        llm = get_chat_model_with_fallback()
+    except Exception:
+        llm = get_chat_model()
+    if callbacks:
+        try:
+            llm = llm.with_config({"callbacks": callbacks})
+        except Exception:
+            pass
+    status = langfuse_status()
+    print(f"[langfuse] {'enabled' if status['enabled'] else 'disabled'}"
+          f" — {status.get('error') or status.get('host')}")
     if thread_id_resolver is None:
         thread_id_resolver = lambda s: s.get("_session_id", "default")
 

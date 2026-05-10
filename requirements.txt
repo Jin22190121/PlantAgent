@@ -20,9 +20,13 @@ langchain-core>=0.3.0
 # (선택) Groq fallback
 # langchain-groq>=0.2.0
 
+# ── 관측성 (Phase 3, env-gated) ───────
+# langfuse>=2.0.0       # LANGFUSE_*_KEY 설정 시 자동 활성화
+
 # ── 웹 서버 ───────────────────────────
 fastapi>=0.115.0
 uvicorn>=0.30.0
+httpx>=0.27.0
 
 # ── 유틸리티 ──────────────────────────
 python-dotenv>=1.0.0

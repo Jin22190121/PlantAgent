@@ -36,6 +36,7 @@ from npp_agent.mcp_servers.procedure import ProcedureMCP
 from npp_agent.mcp_servers.training  import TrainingMCP
 from npp_agent.mcp_servers.router    import MCPRouter
 from npp_agent.llm import llm_status
+from npp_agent.observability import langfuse_status
 
 # ── Engine + MCP routing (shared singleton) ─────────────────
 engine = SimulationEngine(sim_speed=60.0)
@@ -282,14 +283,17 @@ async def reset_session(session_id: str):
 
 @app.get("/health")
 async def health():
-    info = llm_status()
     return {
         "ok": True,
-        "llm": info,
+        "llm": llm_status(),
+        "langfuse": langfuse_status(),
         "graph_ready": _graph is not None,
         "graph_error": _graph_error,
         "sim_running": engine._task is not None and not engine._task.done(),
         "pending_approvals": list(_awaiting_approval.keys()),
+        "procedures": {"docs": ["GOP", "EOP", "AOP"],
+                       "scenarios": list(__import__("npp_agent.sim.state",
+                                                    fromlist=["SCENARIOS"]).SCENARIOS.keys())},
     }
 
 

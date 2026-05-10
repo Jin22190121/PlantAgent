@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <title>NPP AI Agent — Live PoC</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body {
@@ -437,6 +438,10 @@
         <div class="label">Steam Generator</div>
         <div class="param"><span class="name">SG Level (NR)</span><span class="value" id="v_SG">— %</span></div>
       </div>
+      <div class="state-section">
+        <div class="label">Trends (last 60 min sim)</div>
+        <canvas id="trendChart" height="160" style="background:#0c172a;border-radius:5px;padding:6px"></canvas>
+      </div>
     </div>
   </div>
 
@@ -473,6 +478,33 @@
 <div class="alarm-bar">
   <span class="lbl">Events</span>
   <div class="alarm-list" id="alarms"></div>
+</div>
+
+<!-- Step citation modal -->
+<div class="modal-backdrop" id="stepModal">
+  <div class="modal" style="width:520px">
+    <div class="modal-head">
+      <div class="title" id="stepModalTitle">절차 step 원문</div>
+      <div class="sub" id="stepModalId">—</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-row">
+        <div class="lbl">전체 본문</div>
+        <div class="val" id="stepModalText" style="white-space:pre-wrap">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">Setpoints</div>
+        <div class="val" id="stepModalSP">—</div>
+      </div>
+      <div class="modal-row" id="stepModalCRow" style="display:none">
+        <div class="lbl">CAUTION / NOTE</div>
+        <div class="caution-list"><ul id="stepModalC"></ul></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-approve" onclick="document.getElementById('stepModal').classList.remove('show')">닫기</button>
+    </div>
+  </div>
 </div>
 
 <!-- HITL approval modal -->
@@ -616,6 +648,9 @@ function renderTracker(docType) {
     const d = document.createElement('div');
     d.className = 'step';
     d.dataset.step = s.id;
+    d.style.cursor = 'pointer';
+    d.title = '원문 보기 — ' + s.id;
+    d.onclick = () => showStep(s.id);
     d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
       <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
     stepsEl.appendChild(d);
@@ -637,6 +672,83 @@ renderTracker("GOP");
 const SESSION_ID = 'sess-' + Date.now();
 let STATE = {};
 const seenAlarms = new Set();
+
+// ─────────── Trend chart (Chart.js) ───────────
+const trend = { t: [], TRCS: [], PRCS: [], PZR: [] };
+let chart = null;
+function ensureChart() {
+  if (chart) return chart;
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'T_RCS °F',  data: [], borderColor: '#ff8a65', backgroundColor: 'transparent', yAxisID: 'y',  borderWidth: 1.5, pointRadius: 0 },
+      { label: 'P_RCS psig', data: [], borderColor: '#4dd0e1', backgroundColor: 'transparent', yAxisID: 'y2', borderWidth: 1.5, pointRadius: 0 },
+      { label: 'PZR lvl %',  data: [], borderColor: '#aed581', backgroundColor: 'transparent', yAxisID: 'y3', borderWidth: 1.5, pointRadius: 0 },
+    ]},
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      scales: {
+        x:  { ticks: { color: '#78909c', font: {size: 9} } },
+        y:  { position: 'left',  ticks: { color: '#ff8a65', font: {size: 9} }, grid: {color: '#1e2e4a'} },
+        y2: { position: 'right', ticks: { color: '#4dd0e1', font: {size: 9} }, grid: {drawOnChartArea: false} },
+        y3: { display: false },
+      },
+      plugins: {
+        legend: { labels: { color: '#b0bec5', font: {size: 10}, boxWidth: 10 } },
+      },
+    },
+  });
+  return chart;
+}
+function pushTrend(s) {
+  const tMin = (s.sim_time_s / 60).toFixed(1);
+  trend.t.push(tMin);
+  trend.TRCS.push(s.T_RCS_avg_F);
+  trend.PRCS.push(s.P_RCS_psig);
+  trend.PZR.push(s.PZR_level_pct);
+  // window: last 120 samples (~2 min real time × sim_speed)
+  while (trend.t.length > 120) {
+    trend.t.shift(); trend.TRCS.shift(); trend.PRCS.shift(); trend.PZR.shift();
+  }
+  const c = ensureChart();
+  c.data.labels = trend.t;
+  c.data.datasets[0].data = trend.TRCS;
+  c.data.datasets[1].data = trend.PRCS;
+  c.data.datasets[2].data = trend.PZR;
+  c.update('none');
+}
+function clearTrend() {
+  trend.t.length = 0; trend.TRCS.length = 0; trend.PRCS.length = 0; trend.PZR.length = 0;
+  if (chart) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); chart.update('none'); }
+}
+
+// ─────────── Step-citation modal ───────────
+async function showStep(stepId) {
+  try {
+    const r = await fetch('/sim/action', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tool:'get_step', args:{step_id: stepId}}),
+    });
+    const j = await r.json();
+    if (j.error) { alert('step 조회 실패: ' + j.error); return; }
+    document.getElementById('stepModalTitle').textContent = j.title || stepId;
+    document.getElementById('stepModalId').textContent = `${j.id} · ${j.doc_type} · step ${j.step_no}`;
+    document.getElementById('stepModalText').textContent = j.text || '';
+    document.getElementById('stepModalSP').textContent =
+      Object.keys(j.setpoints || {}).length ? JSON.stringify(j.setpoints, null, 2) : '(없음)';
+    const cul = document.getElementById('stepModalC');
+    cul.innerHTML = '';
+    if (j.cautions && j.cautions.length) {
+      document.getElementById('stepModalCRow').style.display = '';
+      j.cautions.forEach(c => { const li = document.createElement('li'); li.textContent = c; cul.appendChild(li); });
+    } else {
+      document.getElementById('stepModalCRow').style.display = 'none';
+    }
+    document.getElementById('stepModal').classList.add('show');
+  } catch(e) { alert('error: ' + e.message); }
+}
+window.showStep = showStep;
 
 function fmtTime(s) {
   const h = Math.floor(s/3600).toString().padStart(2,'0');
@@ -674,6 +786,7 @@ function paint(s) {
   document.getElementById('spray').classList.toggle('on', s.PZR_spray_open);
   document.getElementById('msiv').classList.toggle('on', s.MSIV_open);
   document.getElementById('simClock').textContent = fmtTime(s.sim_time_s);
+  pushTrend(s);
 
   // Auto step progress per doc type
   if (activeDoc === 'GOP') {
@@ -736,6 +849,7 @@ function setStep(stepId, status) {
 
 async function changeScenario(scenarioId) {
   seenAlarms.clear();
+  clearTrend();
   document.getElementById('alarms').innerHTML = '';
   document.querySelectorAll('.step').forEach(el => el.classList.remove('done', 'active'));
   await fetch('/sim/control', {
@@ -841,7 +955,7 @@ function handleEvent(d) {
 }
 function highlightCite(s) {
   return s.replace(/((?:GOP-A-|EOP-E0-|AOP-10-)\d+)/g,
-    '<code style="background:#234060;color:#4dd0e1;padding:1px 6px;border-radius:3px;font-size:11px">$1</code>');
+    '<code onclick="showStep(\'$1\')" style="background:#234060;color:#4dd0e1;padding:1px 6px;border-radius:3px;font-size:11px;cursor:pointer" title="원문 보기">$1</code>');
 }
 async function send() {
   const inp = document.getElementById('input');
