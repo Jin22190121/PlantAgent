@@ -368,14 +368,20 @@
 
 <div class="header">
   <h1>🏭 NPP AI Agent — Live PoC</h1>
-  <span class="badge">Westinghouse 4-loop · App19-1 §A</span>
+  <select id="scenarioSel" onchange="changeScenario(this.value)"
+          style="background:#16243d;color:#e0e8f5;border:1px solid #2a3d5e;padding:5px 10px;border-radius:4px;font-size:12px">
+    <option value="scenario_gop_heatup">GOP — 콜드셧다운→핫셧다운</option>
+    <option value="scenario_eop_reactor_trip_si">EOP — 원자로 트립+SI</option>
+    <option value="scenario_aop_cr_inaccessible">AOP — 주제어실 접근 불능</option>
+  </select>
+  <span class="badge" id="docBadge">GOP</span>
   <span class="badge" id="llmBadge">LLM 확인 중...</span>
   <div class="spacer"></div>
   <span class="clock">SIM · <span id="simClock">00:00:00</span></span>
   <button onclick="ctl('pause')">⏸ Pause</button>
   <button onclick="ctl('resume')">▶ Resume</button>
-  <button class="danger" onclick="if(confirm('시뮬레이터를 초기 상태로 리셋하시겠습니까?')) ctl('reset')">↺ Reset</button>
-  <a href="/demo" target="_blank" style="margin-left:8px;color:#4dd0e1;font-size:11px;text-decoration:none;">[데모 영상]</a>
+  <button class="danger" onclick="if(confirm('시뮬레이터를 초기 상태로 리셋하시겠습니까?')) changeScenario(document.getElementById('scenarioSel').value)">↺ Reset</button>
+  <a href="/demo" target="_blank" style="margin-left:8px;color:#4dd0e1;font-size:11px;text-decoration:none;">[데모]</a>
 </div>
 
 <div class="main">
@@ -456,8 +462,8 @@
     <div class="panel-title">Procedure Tracker</div>
     <div class="panel-body">
       <div class="proc-header">
-        <div class="id">Appendix 19-1 · Section A</div>
-        <div class="title">Heatup: COLD SHUTDOWN → HOT SHUTDOWN</div>
+        <div class="id" id="procDocId">—</div>
+        <div class="title" id="procDocTitle">—</div>
       </div>
       <div id="steps"></div>
     </div>
@@ -511,27 +517,121 @@
 </div>
 
 <script>
-// ─────────── Procedure step definitions (mirrors backend) ───────────
-const STEPS = [
-  {n:1, title:"운전감독 허가 확인", sub:"manual permission"},
-  {n:2, title:"SG 수위 33±5% NR", sub:"SG_level → 33%"},
-  {n:3, title:"RCP 봉수 주입 확인", sub:"seal_inj > 0"},
-  {n:4, title:"PZR 히터 기동", sub:"⚠ ≤100°F/hr"},
-  {n:5, title:"증기방울 형성", sub:"PZR 90% → 25%"},
-  {n:6, title:"RCP 1~4 기동", sub:"P_RCS ≥ 320 psig"},
-  {n:7, title:"가열률 모니터", sub:"≤ 100°F/hr"},
-  {n:8, title:"RHR 펌프 정지", sub:"RHR off"},
-  {n:9, title:"T_RCS 200°F 도달", sub:"→ MODE 4"},
-];
+// ─────────── Procedure step definitions per doc_type ──────
+const DOC_INFO = {
+  GOP: {
+    docId: "GOP — Westinghouse §19.0 App19-1 §A",
+    title: "Heatup: COLD SHUTDOWN → HOT SHUTDOWN",
+    steps: [
+      {id:"GOP-A-1", n:1, title:"운전감독 허가 확인", sub:"manual"},
+      {id:"GOP-A-2", n:2, title:"SG 수위 33±5% NR", sub:"set_sg_level_target"},
+      {id:"GOP-A-3", n:3, title:"RCP 봉수 주입 확인", sub:"seal_inj > 0"},
+      {id:"GOP-A-4", n:4, title:"PZR 히터 기동", sub:"⚠ ≤100°F/hr"},
+      {id:"GOP-A-5", n:5, title:"증기방울 형성", sub:"PZR 90→25%"},
+      {id:"GOP-A-6", n:6, title:"RCP 1~4 기동", sub:"P_RCS ≥ 320 psig"},
+      {id:"GOP-A-7", n:7, title:"가열률 모니터", sub:"≤ 100°F/hr"},
+      {id:"GOP-A-8", n:8, title:"RHR 펌프 정지", sub:"set_rhr_pump(off)"},
+      {id:"GOP-A-9", n:9, title:"T_RCS 200°F 도달", sub:"→ MODE 4"},
+    ],
+    quicks: [
+      {label:"📊 다음 절차", text:"현재 플랜트 상태를 확인하고 다음 절차를 안내해주세요."},
+      {label:"🔥 PZR 히터 기동", text:"GOP-A-4 단계: PZR 히터 기동을 진행해주세요."},
+      {label:"💨 Steam bubble", text:"가압기 증기방울 형성 절차를 안내해주세요."},
+      {label:"⚙ RCP 기동", text:"RCP 1~4를 순차 기동해주세요."},
+      {label:"🚨 알람 확인", text:"현재 활성 알람을 확인하고 대응 절차를 알려주세요."},
+    ],
+  },
+  EOP: {
+    docId: "EOP — Ginna E-0",
+    title: "Reactor Trip or Safety Injection",
+    steps: [
+      {id:"EOP-E0-1",  n:1,  title:"원자로 트립 확인/수동 트립", sub:"IMMEDIATE"},
+      {id:"EOP-E0-2",  n:2,  title:"터빈 정지밸브 차단", sub:"trip_turbine"},
+      {id:"EOP-E0-3",  n:3,  title:"AC 비상모선 ≥420V", sub:"verify"},
+      {id:"EOP-E0-4",  n:4,  title:"SI 신호/수동 작동", sub:"PZR<1750 psig"},
+      {id:"EOP-E0-5",  n:5,  title:"SI/RHR 펌프 운전", sub:"verify"},
+      {id:"EOP-E0-6",  n:6,  title:"CNMT RECIRC fan", sub:"verify"},
+      {id:"EOP-E0-7",  n:7,  title:"CNMT spray 미요구", sub:"<28 psig"},
+      {id:"EOP-E0-8",  n:8,  title:"주증기관 격리 점검", sub:"close_msiv"},
+      {id:"EOP-E0-9",  n:9,  title:"MFW 격리", sub:"trip_mfw"},
+      {id:"EOP-E0-10", n:10, title:"AFW 펌프 운전", sub:"start_afw"},
+      {id:"EOP-E0-11", n:11, title:"SW 펌프 ≥2기", sub:"verify"},
+      {id:"EOP-E0-12", n:12, title:"CI/CVI 확인", sub:"verify"},
+      {id:"EOP-E0-13", n:13, title:"CCW 시스템", sub:"≥1 pump"},
+      {id:"EOP-E0-14", n:14, title:"SI/RHR 유량 확인", sub:""},
+      {id:"EOP-E0-15", n:15, title:"AFW > 200 gpm", sub:""},
+      {id:"EOP-E0-21", n:21, title:"Tavg 547°F 안정", sub:"set_atm_dump"},
+    ],
+    quicks: [
+      {label:"🚨 즉시 조치", text:"E-0 IMMEDIATE ACTION 1~12 단계를 순차 안내해주세요."},
+      {label:"⚡ 원자로 트립", text:"EOP-E0-1: 원자로 수동 트립을 수행해주세요."},
+      {label:"💧 SI 작동", text:"EOP-E0-4: 안전주입 수동 작동을 진행해주세요."},
+      {label:"🔥 AFW 기동", text:"EOP-E0-10: 보조급수 펌프 기동을 진행해주세요."},
+      {label:"📊 상태 확인", text:"현재 플랜트 상태와 SI 작동 여부를 확인해주세요."},
+    ],
+  },
+  AOP: {
+    docId: "AOP — Point Beach AOP-10",
+    title: "Control Room Inaccessibility",
+    steps: [
+      {id:"AOP-10-1",  n:1,  title:"양 호기 수동 원자로 트립", sub:"manual_reactor_trip"},
+      {id:"AOP-10-2",  n:2,  title:"양 호기 터빈 트립", sub:"trip_turbine"},
+      {id:"AOP-10-3",  n:3,  title:"MSIV 차단", sub:"close_msiv"},
+      {id:"AOP-10-4",  n:4,  title:"대기증기방출 1005 psig", sub:"set_atm_dump"},
+      {id:"AOP-10-5",  n:5,  title:"충전펌프 흡입 RWST", sub:"align_charging_to_rwst"},
+      {id:"AOP-10-6",  n:6,  title:"TDAFW 기동", sub:"start_tdafw"},
+      {id:"AOP-10-7",  n:7,  title:"MDAFW 토출 PULLOUT", sub:""},
+      {id:"AOP-10-8",  n:8,  title:"MFW 정지", sub:"trip_mfw"},
+      {id:"AOP-10-9",  n:9,  title:"히터드레인 펌프 정지", sub:""},
+      {id:"AOP-10-10", n:10, title:"복수펌프 호기당 1기", sub:""},
+      {id:"AOP-10-11", n:11, title:"주제어실 철수", sub:"evacuate_control_room"},
+      {id:"AOP-10-12", n:12, title:"CAS 통보", sub:""},
+      {id:"AOP-10-13", n:13, title:"운전원 4명 분산", sub:""},
+      {id:"AOP-10-14", n:14, title:"추가 운전원 분산", sub:""},
+      {id:"AOP-10-15", n:15, title:"STA TSC 보고", sub:""},
+      {id:"AOP-10-16", n:16, title:"현장 모니터", sub:""},
+      {id:"AOP-10-17", n:17, title:"재진입 → EOP-0", sub:""},
+    ],
+    quicks: [
+      {label:"⚡ 양 호기 트립", text:"AOP-10-1: 양 호기 수동 원자로 트립을 수행해주세요."},
+      {label:"🔒 MSIV 차단", text:"AOP-10-3: MSIV를 차단하고 대기증기방출을 1005 psig로 설정해주세요."},
+      {label:"💧 RWST 정렬", text:"AOP-10-5: 충전펌프 흡입을 RWST로 정렬해주세요."},
+      {label:"🚪 주제어실 철수", text:"AOP-10-11: 주제어실 철수를 선언해주세요."},
+      {label:"📊 상태 확인", text:"현재 플랜트 상태를 확인하고 다음 우선 행동을 알려주세요."},
+    ],
+  },
+};
 
+let activeDoc = "GOP";
 const stepsEl = document.getElementById('steps');
-STEPS.forEach(s => {
-  const d = document.createElement('div');
-  d.className = 'step'; d.dataset.step = s.n;
-  d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
-    <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
-  stepsEl.appendChild(d);
-});
+
+function renderTracker(docType) {
+  activeDoc = docType;
+  const info = DOC_INFO[docType];
+  document.getElementById('procDocId').textContent = info.docId;
+  document.getElementById('procDocTitle').textContent = info.title;
+  document.getElementById('docBadge').textContent = docType;
+  stepsEl.innerHTML = '';
+  info.steps.forEach(s => {
+    const d = document.createElement('div');
+    d.className = 'step';
+    d.dataset.step = s.id;
+    d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
+      <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
+    stepsEl.appendChild(d);
+  });
+  // refresh quick buttons
+  const qrow = document.querySelector('.quick-row');
+  qrow.innerHTML = '';
+  info.quicks.forEach(q => {
+    const b = document.createElement('button');
+    b.className = 'quick';
+    b.textContent = q.label;
+    b.onclick = () => quick(q.text);
+    qrow.appendChild(b);
+  });
+}
+renderTracker("GOP");
 
 // ─────────── Live state ───────────
 const SESSION_ID = 'sess-' + Date.now();
@@ -547,6 +647,10 @@ function fmtTime(s) {
 
 function paint(s) {
   STATE = s;
+  // Auto-switch tracker if backend scenario changed
+  const newDoc = s.active_doc_type || 'GOP';
+  if (newDoc !== activeDoc) renderTracker(newDoc);
+
   document.getElementById('modeNum').textContent = s.mode;
   document.getElementById('modeName').textContent = s.mode_name || '';
   document.getElementById('v_TRCS').textContent = s.T_RCS_avg_F.toFixed(1) + ' °F';
@@ -571,23 +675,51 @@ function paint(s) {
   document.getElementById('msiv').classList.toggle('on', s.MSIV_open);
   document.getElementById('simClock').textContent = fmtTime(s.sim_time_s);
 
-  // Auto-update procedure step status from state heuristics
-  setStep(1, 'done');
-  if (Math.abs(s.SG_level_NR_pct - 33) < 8) setStep(2, 'done');
-  if (s.seal_inj_flow_gpm > 0) setStep(3, 'done');
-  if (s.PZR_heater_on) setStep(4, 'done');
-  if (s.steam_bubble_formed) setStep(5, 'done');
-  if (s.RCP_running.filter(x=>x).length === 4) setStep(6, 'done');
-  if (s.heatup_rate_F_per_hr > 0 && s.heatup_rate_F_per_hr < 100) setStep(7, 'done');
-  if (!s.RHR_pump_on && s.RCP_running.some(x=>x)) setStep(8, 'done');
-  if (s.T_RCS_avg_F >= 200) setStep(9, 'done');
-  // Set next pending as active
-  let firstPending = STEPS.find(st => {
-    return !document.querySelector(`.step[data-step="${st.n}"]`).classList.contains('done');
+  // Auto step progress per doc type
+  if (activeDoc === 'GOP') {
+    setStep('GOP-A-1', 'done');
+    if (Math.abs(s.SG_level_NR_pct - 33) < 10) setStep('GOP-A-2', 'done');
+    if (s.seal_inj_flow_gpm > 0) setStep('GOP-A-3', 'done');
+    if (s.PZR_heater_on) setStep('GOP-A-4', 'done');
+    if (s.steam_bubble_formed) setStep('GOP-A-5', 'done');
+    if (s.RCP_running.filter(x=>x).length === 4) setStep('GOP-A-6', 'done');
+    if (s.heatup_rate_F_per_hr > 0 && s.heatup_rate_F_per_hr < 100) setStep('GOP-A-7', 'done');
+    if (!s.RHR_pump_on && s.RCP_running.some(x=>x)) setStep('GOP-A-8', 'done');
+    if (s.T_RCS_avg_F >= 200) setStep('GOP-A-9', 'done');
+  } else if (activeDoc === 'EOP') {
+    if (s.reactor_tripped) setStep('EOP-E0-1', 'done');
+    if (s.turbine_tripped) setStep('EOP-E0-2', 'done');
+    if (s.bus_voltage_V >= 420) setStep('EOP-E0-3', 'done');
+    if (s.si_signal) setStep('EOP-E0-4', 'done');
+    if (s.si_pumps_running) setStep('EOP-E0-5', 'done');
+    if (!s.mfw_pump_running && (s.afw_mdafw_running || s.afw_tdafw_running)) {
+      setStep('EOP-E0-9', 'done');
+      setStep('EOP-E0-10', 'done');
+    }
+    if (s.ci_signal) setStep('EOP-E0-12', 'done');
+    if (s.afw_flow_total_gpm > 200) setStep('EOP-E0-15', 'done');
+    if (Math.abs(s.T_RCS_avg_F - 547) < 5) setStep('EOP-E0-21', 'done');
+  } else if (activeDoc === 'AOP') {
+    if (s.reactor_tripped) setStep('AOP-10-1', 'done');
+    if (s.turbine_tripped) setStep('AOP-10-2', 'done');
+    if (!s.MSIV_open) setStep('AOP-10-3', 'done');
+    if (Math.abs(s.atm_steam_dump_setpoint_psig - 1005) < 10) setStep('AOP-10-4', 'done');
+    if (s.charging_suction_rwst) setStep('AOP-10-5', 'done');
+    if (s.afw_tdafw_running) setStep('AOP-10-6', 'done');
+    if (!s.mfw_pump_running) setStep('AOP-10-8', 'done');
+    if (s.control_room_evacuated) setStep('AOP-10-11', 'done');
+  }
+  // Mark first pending as active
+  const allSteps = document.querySelectorAll('.step');
+  let foundActive = false;
+  allSteps.forEach(el => {
+    if (!el.classList.contains('done') && !foundActive) {
+      el.classList.add('active'); foundActive = true;
+    } else if (!el.classList.contains('done')) {
+      el.classList.remove('active');
+    }
   });
-  if (firstPending) setStep(firstPending.n, 'active');
 
-  // Alarms
   (s.alarms || []).forEach(a => {
     const key = a.t + ':' + a.text;
     if (seenAlarms.has(key)) return;
@@ -596,15 +728,21 @@ function paint(s) {
   });
 }
 
-function setStep(n, status) {
-  const el = document.querySelector(`.step[data-step="${n}"]`);
+function setStep(stepId, status) {
+  const el = document.querySelector(`.step[data-step="${stepId}"]`);
   if (!el) return;
-  if (status === 'done') {
-    el.classList.add('done');
-    el.classList.remove('active');
-  } else if (status === 'active') {
-    if (!el.classList.contains('done')) el.classList.add('active');
-  }
+  if (status === 'done') { el.classList.add('done'); el.classList.remove('active'); }
+}
+
+async function changeScenario(scenarioId) {
+  seenAlarms.clear();
+  document.getElementById('alarms').innerHTML = '';
+  document.querySelectorAll('.step').forEach(el => el.classList.remove('done', 'active'));
+  await fetch('/sim/control', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({op:'reset_scenario', value: scenarioId})
+  });
+  addMsg('status', '시나리오 변경: ' + scenarioId);
 }
 
 // ─────────── SSE for plant state ───────────
@@ -702,7 +840,7 @@ function handleEvent(d) {
     addMsg('error', escapeHtml(d.text));
 }
 function highlightCite(s) {
-  return s.replace(/(App19-1-A-\d+)/g,
+  return s.replace(/((?:GOP-A-|EOP-E0-|AOP-10-)\d+)/g,
     '<code style="background:#234060;color:#4dd0e1;padding:1px 6px;border-radius:3px;font-size:11px">$1</code>');
 }
 async function send() {

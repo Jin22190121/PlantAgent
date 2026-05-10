@@ -29,16 +29,20 @@ TIER_MAP: dict[str, Tier] = {
     # READ
     "get_plant_state":            Tier.R,
     "get_alarm_list":             Tier.R,
+    "list_scenarios":             Tier.R,
     "search_procedure":           Tier.R,
     "get_step":                   Tier.R,
     "get_next_step":              Tier.R,
     "search_by_mode_transition":  Tier.R,
     "get_cautions":               Tier.R,
     "get_step_by_action":         Tier.R,
+    "search_by_setpoint_violation": Tier.R,
+    "list_documents":             Tier.R,
+    "list_steps_in_doc":          Tier.R,
     "get_session_summary":        Tier.R,
-    # ADVISE (produce records, no plant change)
+    # ADVISE
     "log_action":                 Tier.A,
-    # EXECUTE (mutate simulator state)
+    # EXECUTE — simulator mutations
     "set_pzr_heater":             Tier.E,
     "set_pzr_spray":              Tier.E,
     "set_rhr_pump":               Tier.E,
@@ -48,8 +52,19 @@ TIER_MAP: dict[str, Tier] = {
     "set_letdown_flow":           Tier.E,
     "set_sg_level_target":        Tier.E,
     "open_msiv":                  Tier.E,
+    "close_msiv":                 Tier.E,
     "advance_time":               Tier.E,
     "reset_simulator":            Tier.E,
+    # EXECUTE — EOP/AOP additions
+    "manual_reactor_trip":        Tier.E,
+    "trip_turbine":               Tier.E,
+    "actuate_si":                 Tier.E,
+    "trip_mfw":                   Tier.E,
+    "start_afw":                  Tier.E,
+    "start_tdafw":                Tier.E,
+    "align_charging_to_rwst":     Tier.E,
+    "set_atm_dump":               Tier.E,
+    "evacuate_control_room":      Tier.E,
 }
 
 

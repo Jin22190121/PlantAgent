@@ -39,28 +39,38 @@ def _safe_json_extract(text: str) -> dict | None:
     return None
 
 
-PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 정상운전(Westinghouse PWR, Section 19.0 Appendix 19-1 §A) AI Agent입니다.
+PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 NPP AI Agent입니다.
+3개 절차서를 학습했습니다:
+  • GOP (Westinghouse §19.0 App19-1 §A) — 콜드셧다운 → 핫셧다운 기동
+  • EOP (Ginna E-0) — 원자로 트립 / 안전주입
+  • AOP (Point Beach AOP-10) — 주제어실 접근 불능
 
-당신의 역할: 운전원의 발화와 현재 플랜트 상태를 보고, 다음에 할 행동을 한 번에 하나만 결정합니다.
+당신의 역할: 활성 시나리오와 현재 플랜트 상태를 보고, 해당 doc_type의
+절차서를 인용하여 다음 행동을 한 번에 하나만 결정합니다.
 
 다음 JSON 객체 하나만 출력하세요. 다른 텍스트 금지.
 
 {
   "kind": "advise" | "execute" | "respond",
-  "tool": null | "set_pzr_heater" | "set_pzr_spray" | "set_rhr_pump" | "start_rcp" | "stop_rcp" | "set_charging_flow" | "set_letdown_flow" | "set_sg_level_target" | "open_msiv" | "advance_time",
+  "tool": null | "set_pzr_heater" | "set_rhr_pump" | "start_rcp" | "stop_rcp" |
+                 "set_charging_flow" | "set_letdown_flow" | "set_sg_level_target" |
+                 "open_msiv" | "close_msiv" | "manual_reactor_trip" | "trip_turbine" |
+                 "actuate_si" | "trip_mfw" | "start_afw" | "start_tdafw" |
+                 "align_charging_to_rwst" | "set_atm_dump" | "evacuate_control_room" |
+                 "advance_time",
   "args": {},
   "rationale": "<왜 이 행동인지>",
-  "cited_step_id": "App19-1-A-N",
+  "cited_step_id": "<예: GOP-A-4 / EOP-E0-1 / AOP-10-3>",
   "expected_outcome": "<예상 상태 변화>",
   "cautions": ["..."],
-  "message_to_operator": "<운전원에게 보일 한국어 메시지 — 절차 step ID 포함>"
+  "message_to_operator": "<운전원 안내 한국어 — step ID 인용 포함>"
 }
 
 규칙:
-- 반드시 절차 step을 인용하세요. 인용된 step의 텍스트만 근거로 삼으세요.
-- 실 조작이 필요하면 kind="execute", 안내·확인만이면 "advise", 절차 종료/대기면 "respond".
-- 안전: 가열률 ≤ 100°F/hr, RCP 기동 전 P_RCS ≥ 320 psig, ΔT(PZR-spray) ≤ 320°F.
-- 모르거나 확신이 없으면 kind="respond"로 운전원에게 정보 요청.
+- 반드시 활성 시나리오의 doc_type에 해당하는 절차 step을 인용하세요.
+- IMMEDIATE ACTION step은 즉시 실행, 비-immediate는 advise/respond로 안내.
+- 안전: 가열률 ≤ 100°F/hr, RCP 기동 전 P_RCS ≥ 320 psig, SI 자동 setpoint(PZR<1750psig).
+- 모르면 kind="respond"로 정보 요청.
 """
 
 
@@ -80,29 +90,41 @@ def make_assess_state(router):
 def make_retrieve_procedure(router):
     def node(state: AgentState) -> dict:
         plant = state.get("plant_state", {}) or {}
-        mode = plant.get("mode", 5)
-        # Always grab the mode-transition list as anchor
-        by_mode = router.call_internal(
-            "search_by_mode_transition",
-            {"from_mode": mode, "to_mode": max(1, mode - 1)},
-        )
-        ranked = []
+        active_doc = plant.get("active_doc_type", "GOP")
+
+        # Anchor: full step list of the active doc (in order)
+        in_doc = router.call_internal("list_steps_in_doc",
+                                      {"doc_type": active_doc})
+        anchor = in_doc.get("steps", []) if isinstance(in_doc, dict) else []
+
+        # Semantic search constrained to active doc
         sit = state.get("operator_input", "") or ""
+        ranked = []
         if sit:
-            sem = router.call_internal(
-                "search_procedure", {"situation": sit, "n_results": 4}
-            )
+            sem = router.call_internal("search_procedure",
+                                        {"situation": sit, "n_results": 4,
+                                         "doc_type": active_doc})
             ranked = sem.get("procedures", []) if isinstance(sem, dict) else []
-        # Merge keeping order: semantic top-k then mode anchor
+
+        # Setpoint-violation lookup from active alarms
+        violations = []
+        for a in state.get("alarms", []) or []:
+            text = (a.get("text") or "")
+            if "psig" in text or "°F/hr" in text or "수위" in text:
+                # naive trigger: just include relevant steps for active doc
+                pass
+
         seen = set()
         merged = []
-        for src in (ranked, by_mode.get("procedures", []) if isinstance(by_mode, dict) else []):
+        # Order: semantic top-k, then anchor list (so plan_action sees both)
+        for src in (ranked, anchor):
             for p in src:
-                if p["id"] in seen:
+                pid = p.get("id")
+                if not pid or pid in seen:
                     continue
-                seen.add(p["id"])
+                seen.add(pid)
                 merged.append(p)
-        return {"retrieved_procedures": merged[:8]}
+        return {"retrieved_procedures": merged[:10]}
     return node
 
 
@@ -116,24 +138,43 @@ def make_plan_action(llm):
 
         # Build context message
         context = {
+            "scenario": {
+                "scenario_id":      plant.get("scenario_id"),
+                "active_doc_type":  plant.get("active_doc_type"),
+                "mode":             plant.get("mode"),
+                "mode_name":        plant.get("mode_name"),
+            },
             "plant": {
-                "mode": plant.get("mode"),
-                "T_RCS_F": round(plant.get("T_RCS_avg_F", 0), 1),
-                "P_RCS_psig": round(plant.get("P_RCS_psig", 0), 0),
-                "PZR_level_pct": round(plant.get("PZR_level_pct", 0), 1),
-                "PZR_temp_F": round(plant.get("PZR_temp_F", 0), 1),
-                "RCP_running": plant.get("RCP_running"),
-                "RHR_pump_on": plant.get("RHR_pump_on"),
-                "PZR_heater_on": plant.get("PZR_heater_on"),
-                "heatup_rate_F_per_hr": round(plant.get("heatup_rate_F_per_hr", 0), 1),
-                "steam_bubble_formed": plant.get("steam_bubble_formed"),
+                "T_RCS_F":          round(plant.get("T_RCS_avg_F", 0), 1),
+                "P_RCS_psig":       round(plant.get("P_RCS_psig", 0), 0),
+                "PZR_level_pct":    round(plant.get("PZR_level_pct", 0), 1),
+                "PZR_temp_F":       round(plant.get("PZR_temp_F", 0), 1),
+                "P_steam_psig":     round(plant.get("P_steam_psig", 0), 0),
+                "P_cnmt_psig":      round(plant.get("P_cnmt_psig", 0), 1),
+                "SG_level_NR_pct":  round(plant.get("SG_level_NR_pct", 0), 1),
+                "RCP_running":      plant.get("RCP_running"),
+                "RHR_pump_on":      plant.get("RHR_pump_on"),
+                "PZR_heater_on":    plant.get("PZR_heater_on"),
+                "MSIV_open":        plant.get("MSIV_open"),
+                "reactor_tripped":  plant.get("reactor_tripped"),
+                "turbine_tripped":  plant.get("turbine_tripped"),
+                "si_signal":        plant.get("si_signal"),
+                "si_pumps_running": plant.get("si_pumps_running"),
+                "mfw_pump_running": plant.get("mfw_pump_running"),
+                "afw_running": (plant.get("afw_mdafw_running") or
+                                plant.get("afw_tdafw_running")),
+                "control_room_evacuated": plant.get("control_room_evacuated"),
+                "heatup_rate_F_per_hr":   round(plant.get("heatup_rate_F_per_hr", 0), 1),
+                "steam_bubble_formed":    plant.get("steam_bubble_formed"),
             },
             "alarms": [a.get("text") for a in alarms[-5:]],
             "candidate_steps": [
-                {"id": p["id"], "title": p.get("title"),
+                {"id": p["id"],
+                 "doc_type": p.get("doc_type"),
+                 "title": p.get("title"),
                  "expected_action": p.get("expected_action"),
-                 "text": (p.get("text") or "")[:300]}
-                for p in procs[:6]
+                 "text": (p.get("text") or "")[:280]}
+                for p in procs[:8]
             ],
             "history_titles": [h.get("title") for h in state.get("procedure_history", [])][-5:],
         }

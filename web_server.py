@@ -137,7 +137,9 @@ async def sim_control(req: ControlReq):
     if req.op == "resume":
         engine.resume(); return {"ok": True, "paused": False}
     if req.op == "reset":
-        engine.reset(); return {"ok": True, "scenario": "cold_shutdown_initial"}
+        return engine.reset(req.value or "scenario_gop_heatup")
+    if req.op == "reset_scenario":
+        return engine.reset(req.value or "scenario_gop_heatup")
     if req.op == "speed":
         return engine.set_sim_speed(float(req.value or 60))
     raise HTTPException(400, f"unknown op: {req.op}")
