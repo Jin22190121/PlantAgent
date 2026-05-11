@@ -192,6 +192,15 @@ def make_plan_action(llm):
             ])
             text = getattr(response, "content", str(response)) or ""
         except Exception as e:
+            err = str(e).lower()
+            hint = ""
+            if "429" in err or "quota" in err or "rate" in err or "resource" in err:
+                hint = ("\n💡 LLM 한도 도달로 보입니다. 해결법:\n"
+                        "  • 잠시 (1분) 기다린 후 다시 시도\n"
+                        "  • Groq fallback 활성화 — export GROQ_API_KEY=... 후 재기동\n"
+                        "  • 모델 변경 — export GEMINI_MODEL=gemini-2.0-flash 후 재기동")
+            elif "api_key" in err or "credential" in err or "auth" in err:
+                hint = ("\n💡 API 키 인식 실패. export GOOGLE_API_KEY=... 후 서버 재기동.")
             return {
                 "proposed_action": {
                     "tool": "", "args": {},
@@ -201,7 +210,7 @@ def make_plan_action(llm):
                     "cautions": [],
                 },
                 "approval_status": "n/a",
-                "final_messages": [f"⚠ AI 응답 오류: {e}"],
+                "final_messages": [f"⚠ AI 응답 오류: {e}{hint}"],
                 "done": True,
             }
 

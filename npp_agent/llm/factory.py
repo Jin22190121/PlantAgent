@@ -7,14 +7,27 @@ Currently supported providers (PoC scope):
   • gemini  — Google AI Studio (default; uses GOOGLE_API_KEY)
   • groq    — Groq Cloud free tier (LLAMA_4 fallback)
 
-Selection priority:
-  1) explicit `provider` arg
-  2) MODEL_PROVIDER env var
-  3) default 'gemini'
+Resilience:
+  • Each model is wrapped in retry-on-429/quota with exponential backoff
+  • get_chat_model_with_fallback() chains primary→Groq automatically when
+    GROQ_API_KEY is set
 """
 from __future__ import annotations
 import os
 from typing import Optional
+
+
+def _wrap_retry(model):
+    """Best-effort: enable LangChain's built-in retry for transient API errors.
+    Falls back to bare model if the LC version doesn't support .with_retry()."""
+    try:
+        return model.with_retry(
+            retry_if_exception_type=(Exception,),
+            wait_exponential_jitter=True,
+            stop_after_attempt=4,   # ~1s, 2s, 4s, 8s backoff
+        )
+    except Exception:
+        return model
 
 
 def _gemini():
@@ -23,11 +36,12 @@ def _gemini():
     if not api_key:
         raise RuntimeError("GOOGLE_API_KEY 환경변수가 설정되지 않았습니다.")
     model_name = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-    return ChatGoogleGenerativeAI(
+    return _wrap_retry(ChatGoogleGenerativeAI(
         model=model_name,
         api_key=api_key,
         temperature=0.2,
-    )
+        max_retries=2,
+    ))
 
 
 def _groq():
@@ -40,7 +54,7 @@ def _groq():
         raise RuntimeError("GROQ_API_KEY 환경변수가 설정되지 않았습니다.")
     model_name = os.environ.get("GROQ_MODEL",
                                  "meta-llama/llama-4-scout-17b-16e-instruct")
-    return ChatGroq(model=model_name, api_key=api_key, temperature=0.2)
+    return _wrap_retry(ChatGroq(model=model_name, api_key=api_key, temperature=0.2))
 
 
 _PROVIDERS = {"gemini": _gemini, "groq": _groq}
@@ -54,11 +68,13 @@ def get_chat_model(provider: Optional[str] = None):
 
 
 def get_chat_model_with_fallback():
-    """Primary model with optional fallback (only adds fallback if available)."""
-    primary = get_chat_model()
-    fallbacks = []
+    """Primary model with optional fallback. When GROQ_API_KEY is set and
+    primary is gemini (or vice versa), the secondary is chained via
+    .with_fallbacks() so transient 429/quota on primary auto-routes."""
     primary_name = (os.environ.get("MODEL_PROVIDER") or "gemini").lower()
-    for name in ["groq"]:
+    primary = get_chat_model(primary_name)
+    fallbacks = []
+    for name in ("groq", "gemini"):
         if name == primary_name:
             continue
         try:
@@ -66,21 +82,30 @@ def get_chat_model_with_fallback():
         except Exception:
             continue
     if fallbacks:
-        return primary.with_fallbacks(fallbacks)
+        try:
+            return primary.with_fallbacks(fallbacks)
+        except Exception:
+            return primary
     return primary
 
 
 def llm_status() -> dict:
     """Diagnostic info for /health endpoint."""
     available = []
+    errors = {}
     for name, fn in _PROVIDERS.items():
         try:
             fn()
             available.append(name)
-        except Exception:
-            pass
+        except Exception as e:
+            errors[name] = str(e)
     return {
         "primary": (os.environ.get("MODEL_PROVIDER") or "gemini").lower(),
+        "gemini_model": os.environ.get("GEMINI_MODEL", "gemini-2.5-flash"),
+        "groq_model": os.environ.get("GROQ_MODEL",
+                                      "meta-llama/llama-4-scout-17b-16e-instruct"),
         "available": available,
         "any_available": bool(available),
+        "errors": errors,
+        "fallback_active": len(available) > 1,
     }
