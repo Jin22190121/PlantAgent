@@ -651,10 +651,16 @@ function renderTracker(docType) {
     d.className = 'step';
     d.dataset.step = s.id;
     d.style.cursor = 'pointer';
-    d.title = '원문 보기 — ' + s.id;
-    d.onclick = () => showStep(s.id);
+    d.title = '클릭: 원문 보기  ·  ✓ 버튼: 수동 완료 마킹';
+    // Click body → open citation modal
     d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
-      <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
+      <div class="text">${s.title}<div class="sub">${s.sub}</div></div>
+      <button class="manual-ack" title="수동으로 완료 표시 / 해제"
+              onclick="event.stopPropagation(); toggleManualDone('${s.id}');"
+              style="background:transparent;border:1px solid #2a3d5e;color:#78909c;
+                     border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;
+                     margin-left:4px">✓</button>`;
+    d.onclick = () => showStep(s.id);
     stepsEl.appendChild(d);
   });
   // refresh quick buttons
@@ -668,6 +674,17 @@ function renderTracker(docType) {
     qrow.appendChild(b);
   });
 }
+
+// Manually toggle a step's done state (for verification-only steps that
+// have no automatic detection signal).
+function toggleManualDone(stepId) {
+  const el = document.querySelector(`.step[data-step="${stepId}"]`);
+  if (!el) return;
+  el.classList.toggle('done');
+  el.classList.remove('active');
+}
+window.toggleManualDone = toggleManualDone;
+
 renderTracker("GOP");
 
 // ─────────── Live state ───────────
@@ -800,35 +817,66 @@ function paint(s) {
   document.getElementById('simClock').textContent = fmtTime(s.sim_time_s);
   pushTrend(s);
 
-  // Auto step progress per doc type
+  // Auto step progress per doc type.
+  // Rule: only mark a step DONE when the plant state has CHANGED from the
+  // scenario's initial condition (i.e. an operator/AI action happened).
+  // "Verification only" steps (e.g. supervisor permission, instrument checks)
+  // stay PENDING until explicitly acknowledged via chat or button press.
   if (activeDoc === 'GOP') {
-    setStep('GOP-A-1', 'done');
-    if (Math.abs(s.SG_level_NR_pct - 33) < 10) setStep('GOP-A-2', 'done');
-    if (s.seal_inj_flow_gpm > 0) setStep('GOP-A-3', 'done');
+    // Step 1 (운전감독 허가) — manual confirm, do NOT auto-mark
+    // Step 2 — operator changed SG target from 100% wet-layup
+    if (s.SG_level_target_pct !== undefined &&
+        s.SG_level_target_pct < 90 && s.SG_level_target_pct > 0) {
+      setStep('GOP-A-2', 'done');
+    }
+    // Step 3 (RCP seal inj 확인) — verification, do NOT auto-mark
+    // Step 4 (PZR 히터 기동) — flag flipped from initial False
     if (s.PZR_heater_on) setStep('GOP-A-4', 'done');
+    // Step 5 (steam bubble 형성)
     if (s.steam_bubble_formed) setStep('GOP-A-5', 'done');
-    if (s.RCP_running.filter(x=>x).length === 4) setStep('GOP-A-6', 'done');
-    if (s.heatup_rate_F_per_hr > 0 && s.heatup_rate_F_per_hr < 100) setStep('GOP-A-7', 'done');
-    if (!s.RHR_pump_on && s.RCP_running.some(x=>x)) setStep('GOP-A-8', 'done');
+    // Step 6 — all 4 RCPs running (initial: all False)
+    if (s.RCP_running && s.RCP_running.filter(x=>x).length === 4)
+      setStep('GOP-A-6', 'done');
+    // Step 7 — heatup rate observed during natural heating (RHR off, RCPs on)
+    if (s.heatup_rate_F_per_hr > 30 && s.heatup_rate_F_per_hr < 100
+        && !s.RHR_pump_on && s.RCP_running && s.RCP_running.some(x=>x))
+      setStep('GOP-A-7', 'done');
+    // Step 8 — RHR pump stopped (initial: True)
+    if (!s.RHR_pump_on && s.RCP_running && s.RCP_running.some(x=>x))
+      setStep('GOP-A-8', 'done');
+    // Step 9 — RCS reaches MODE-4 boundary
     if (s.T_RCS_avg_F >= 200) setStep('GOP-A-9', 'done');
   } else if (activeDoc === 'EOP') {
+    // Step 1 — reactor tripped (initial: False)
     if (s.reactor_tripped) setStep('EOP-E0-1', 'done');
+    // Step 2 — turbine tripped (initial: False at-power)
     if (s.turbine_tripped) setStep('EOP-E0-2', 'done');
-    if (s.bus_voltage_V >= 420) setStep('EOP-E0-3', 'done');
+    // Step 3 (AC bus ≥ 420V) — initial 4160V already satisfies, skip auto
+    // Step 4 — SI manually actuated (initial: False)
     if (s.si_signal) setStep('EOP-E0-4', 'done');
+    // Step 5 — SI pumps running
     if (s.si_pumps_running) setStep('EOP-E0-5', 'done');
-    if (!s.mfw_pump_running && (s.afw_mdafw_running || s.afw_tdafw_running)) {
-      setStep('EOP-E0-9', 'done');
+    // Steps 6, 7, 11, 13, 14 are pure verification — skip auto
+    // Step 9 — MFW tripped (initial: True at-power)
+    if (!s.mfw_pump_running) setStep('EOP-E0-9', 'done');
+    // Step 10 — AFW running (initial: False)
+    if (s.afw_mdafw_running || s.afw_tdafw_running)
       setStep('EOP-E0-10', 'done');
-    }
+    // Step 12 — CI signal triggered (initial: False)
     if (s.ci_signal) setStep('EOP-E0-12', 'done');
+    // Step 15 — AFW flow > 200 gpm
     if (s.afw_flow_total_gpm > 200) setStep('EOP-E0-15', 'done');
-    if (Math.abs(s.T_RCS_avg_F - 547) < 5) setStep('EOP-E0-21', 'done');
+    // Step 21 — Tavg stable near 547°F (after stabilisation)
+    if (s.reactor_tripped && Math.abs(s.T_RCS_avg_F - 547) < 5)
+      setStep('EOP-E0-21', 'done');
   } else if (activeDoc === 'AOP') {
     if (s.reactor_tripped) setStep('AOP-10-1', 'done');
     if (s.turbine_tripped) setStep('AOP-10-2', 'done');
     if (!s.MSIV_open) setStep('AOP-10-3', 'done');
-    if (Math.abs(s.atm_steam_dump_setpoint_psig - 1005) < 10) setStep('AOP-10-4', 'done');
+    // AOP-10-4 — atm dump setpoint changed from 1092 to ~1005
+    if (s.atm_steam_dump_setpoint_psig !== undefined &&
+        Math.abs(s.atm_steam_dump_setpoint_psig - 1005) < 15)
+      setStep('AOP-10-4', 'done');
     if (s.charging_suction_rwst) setStep('AOP-10-5', 'done');
     if (s.afw_tdafw_running) setStep('AOP-10-6', 'done');
     if (!s.mfw_pump_running) setStep('AOP-10-8', 'done');
