@@ -28,17 +28,42 @@ from .nodes import (
 
 
 def _make_checkpointer():
-    """Try sqlite saver; fall back to in-memory if sqlite extras not installed."""
+    """Async-compatible checkpointer.
+
+    The web server uses `graph.astream(...)` which requires an async
+    checkpointer. Order of preference:
+      1) AsyncSqliteSaver (persistent across restarts; needs aiosqlite)
+      2) MemorySaver (in-process only — interrupts still work within session,
+         lost on restart)
+
+    The sync SqliteSaver is NOT compatible with astream and is skipped.
+    """
     Path("data/checkpoints").mkdir(parents=True, exist_ok=True)
     db_path = "data/checkpoints/agent.sqlite"
+    # 1) Try AsyncSqliteSaver (requires aiosqlite)
     try:
-        from langgraph.checkpoint.sqlite import SqliteSaver
-        import sqlite3
-        conn = sqlite3.connect(db_path, check_same_thread=False)
-        return SqliteSaver(conn)
-    except Exception:
-        from langgraph.checkpoint.memory import MemorySaver
-        return MemorySaver()
+        import aiosqlite  # noqa: F401  — ensure backend present
+        from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+        import asyncio
+        async def _open():
+            conn = await aiosqlite.connect(db_path)
+            saver = AsyncSqliteSaver(conn)
+            await saver.setup()
+            return saver
+        try:
+            asyncio.get_running_loop()
+            # We're inside an event loop already (rare during module import);
+            # fall through to MemorySaver to avoid nested-loop issues.
+            raise RuntimeError("running loop detected — defer to MemorySaver")
+        except RuntimeError:
+            saver = asyncio.run(_open())
+            print(f"[graph] AsyncSqliteSaver ready at {db_path}")
+            return saver
+    except Exception as e:
+        print(f"[graph] AsyncSqliteSaver unavailable ({e}); using MemorySaver")
+    # 2) Fallback — works fully async, no persistence
+    from langgraph.checkpoint.memory import MemorySaver
+    return MemorySaver()
 
 
 def _route_after_plan(state: AgentState) -> str:
