@@ -106,6 +106,12 @@ async def demo_page():
         return HTMLResponse(f.read())
 
 
+@app.get("/gop-demo")
+async def gop_demo_page():
+    with open("static/gop_demo.html", "r", encoding="utf-8") as f:
+        return HTMLResponse(f.read())
+
+
 # ── plant state ────────────────────────────────────────────
 @app.get("/plant/state")
 async def plant_state():

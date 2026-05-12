@@ -1,0 +1,760 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>NPP AI Agent — GOP Demo (Auto-play)</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body {
+    height: 100%; background: #0a1428; color: #e0e8f5;
+    font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+    font-size: 13px; overflow: hidden;
+  }
+  body { display: flex; flex-direction: column; }
+
+  .header {
+    height: 52px;
+    background: linear-gradient(180deg, #1a2a4a, #16243d);
+    border-bottom: 1px solid #2a3d5e;
+    display: flex; align-items: center; padding: 0 20px; gap: 12px;
+  }
+  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+  .badge {
+    background: #234060; color: #4dd0e1;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 500;
+  }
+  .badge.green { background: #1a3a25; color: #66bb6a; }
+  .header .spacer { flex: 1; }
+  .header .clock {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px; color: #b0bec5;
+  }
+  .header button {
+    background: #2e5984; color: white; border: none;
+    padding: 7px 14px; border-radius: 4px; cursor: pointer;
+    font-size: 12px;
+  }
+  .header button:hover { background: #3b6e9e; }
+
+  .progress-bar { height: 3px; background: #1e2e4a; width: 100%; }
+  .progress-bar .fill {
+    height: 100%; width: 0%;
+    background: linear-gradient(90deg, #4dd0e1, #66bb6a);
+    transition: width 0.1s linear;
+  }
+
+  .main {
+    flex: 1;
+    display: grid;
+    grid-template-columns: 290px 1fr 340px;
+    gap: 1px; background: #2a3d5e;
+    overflow: hidden;
+  }
+  .panel { background: #0f1c33; overflow: hidden; display: flex; flex-direction: column; }
+  .panel-title {
+    padding: 10px 16px; font-size: 11px; font-weight: 600;
+    letter-spacing: 1.5px; color: #78909c;
+    text-transform: uppercase;
+    border-bottom: 1px solid #1e2e4a; background: #0c172a;
+  }
+  .panel-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
+
+  .state-section { margin-bottom: 16px; }
+  .state-section .label {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 6px;
+  }
+  .mode-display {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 12px; background: #16243d;
+    border-radius: 6px; border-left: 3px solid #4dd0e1;
+  }
+  .mode-display .mode-num {
+    font-size: 28px; font-weight: 700;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #4dd0e1; transition: color 0.5s;
+  }
+  .mode-display .mode-name { font-size: 11px; color: #b0bec5; }
+  .param {
+    display: flex; justify-content: space-between; align-items: center;
+    padding: 6px 0; border-bottom: 1px dotted #1e2e4a;
+  }
+  .param:last-child { border-bottom: none; }
+  .param .name { color: #90a4ae; font-size: 12px; }
+  .param .value {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px; font-weight: 600; color: #e0e8f5;
+    transition: color 0.3s;
+  }
+  .param .value.warn { color: #ffd54f; }
+  .pump-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 6px; }
+  .pump {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; background: #16243d;
+    border-radius: 4px; font-size: 11px;
+  }
+  .pump .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #455a64;
+    transition: background 0.4s, box-shadow 0.4s;
+  }
+  .pump.on .dot { background: #66bb6a; box-shadow: 0 0 6px #66bb6a; }
+
+  .chat { flex: 1; overflow-y: auto; padding: 14px 20px; }
+  .msg {
+    margin-bottom: 12px;
+    animation: fadeIn 0.4s ease-out;
+    max-width: 85%;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+  .msg .who {
+    font-size: 10px; color: #607d8b;
+    margin-bottom: 4px; letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.operator { margin-left: auto; }
+  .msg.operator .who { text-align: right; color: #ffb74d; }
+  .msg.operator .bubble {
+    background: #3e2f1a; color: #ffe0b2;
+    border-right: 3px solid #ffb74d;
+  }
+  .msg.ai .who { color: #4dd0e1; }
+  .msg.ai .bubble {
+    background: #16243d; color: #e0e8f5;
+    border-left: 3px solid #4dd0e1;
+  }
+  .msg.tool { max-width: 70%; }
+  .msg.tool .bubble {
+    background: #0f1c33; border: 1px dashed #2a3d5e;
+    color: #90a4ae;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px; padding: 6px 10px;
+  }
+  .msg.tool .bubble .icon { color: #4dd0e1; margin-right: 6px; }
+  .msg.status .bubble {
+    background: transparent; color: #78909c;
+    font-size: 11px; padding: 4px 10px;
+    border-left: 2px solid #2a3d5e;
+  }
+  .msg.success .bubble {
+    background: #1a3a25; color: #a5d6a7;
+    border-left: 3px solid #66bb6a;
+  }
+  .cite-badge {
+    background: #234060; color: #4dd0e1;
+    padding: 1px 6px; border-radius: 3px;
+    font-size: 11px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+
+  .proc-header {
+    padding: 10px 14px; background: #16243d;
+    border-radius: 6px; margin-bottom: 12px;
+  }
+  .proc-header .id {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px; color: #4dd0e1; margin-bottom: 4px;
+  }
+  .proc-header .title { font-size: 13px; font-weight: 600; }
+  .step {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 10px; margin-bottom: 4px;
+    border-radius: 5px; border: 1px solid transparent;
+    transition: background 0.4s, border-color 0.4s;
+  }
+  .step.active {
+    background: #16243d; border-color: #4dd0e1;
+    box-shadow: 0 0 0 2px rgba(77, 208, 225, 0.15);
+  }
+  .step.done { opacity: 0.6; }
+  .step .num {
+    flex-shrink: 0; width: 22px; height: 22px;
+    border-radius: 50%; background: #1e2e4a;
+    color: #78909c; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.4s;
+  }
+  .step.active .num { background: #4dd0e1; color: #0a1428; }
+  .step.done .num { background: #66bb6a; color: #0a1428; }
+  .step.done .num::after { content: "✓"; }
+  .step.done .num .n { display: none; }
+  .step .text { flex: 1; font-size: 12px; line-height: 1.4; color: #b0bec5; }
+  .step.active .text { color: #e0e8f5; }
+  .step .sub {
+    font-size: 10px; color: #607d8b; margin-top: 2px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+
+  .alarm-bar {
+    height: 44px; background: #0c172a;
+    border-top: 1px solid #2a3d5e;
+    display: flex; align-items: center; padding: 0 20px; gap: 12px;
+  }
+  .alarm-bar .lbl {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1.5px; text-transform: uppercase;
+  }
+  .alarm-list { flex: 1; display: flex; gap: 8px; overflow: hidden; }
+  .alarm {
+    padding: 4px 12px; border-radius: 4px;
+    font-size: 11px; font-weight: 500;
+    animation: alarmIn 0.4s ease-out;
+    white-space: nowrap;
+  }
+  @keyframes alarmIn {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  .alarm.info { background: #234060; color: #4dd0e1; }
+  .alarm.caution { background: #4a3a10; color: #ffd54f; }
+  .alarm.success { background: #1a3a25; color: #66bb6a; }
+
+  /* HITL Approval Modal */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(5, 10, 20, 0.85);
+    z-index: 999; display: none;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(3px);
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #16243d; border: 1px solid #4dd0e1;
+    border-radius: 10px; width: 560px; max-width: 92vw;
+    box-shadow: 0 0 30px rgba(77, 208, 225, 0.3);
+    animation: fadeIn 0.3s ease-out;
+  }
+  .modal-head {
+    padding: 14px 20px; border-bottom: 1px solid #2a3d5e;
+    background: linear-gradient(180deg, #1a3a5a, #16243d);
+    border-radius: 10px 10px 0 0;
+  }
+  .modal-head .title {
+    font-size: 14px; font-weight: 600; color: #ffd54f;
+  }
+  .modal-head .sub {
+    font-size: 11px; color: #78909c; margin-top: 4px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+  .modal-body { padding: 16px 20px; }
+  .modal-row { margin-bottom: 12px; }
+  .modal-row .lbl {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .modal-row .val {
+    font-size: 13px; line-height: 1.5;
+    background: #0f1c33; padding: 8px 12px;
+    border-radius: 5px; border-left: 2px solid #4dd0e1;
+  }
+  .modal-row .val.tool-call {
+    font-family: "SF Mono", Consolas, monospace;
+    color: #4dd0e1;
+  }
+  .caution-list {
+    background: #4a3a10; border-left: 3px solid #ffd54f;
+    padding: 8px 12px; border-radius: 4px;
+    color: #ffe082; font-size: 12px;
+  }
+  .caution-list ul { margin: 0; padding-left: 16px; }
+  .ack {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px; font-size: 11px; color: #ffd54f;
+  }
+  .modal-actions {
+    padding: 14px 20px; border-top: 1px solid #2a3d5e;
+    display: flex; gap: 8px; justify-content: flex-end;
+    background: #0c172a; border-radius: 0 0 10px 10px;
+  }
+  .modal-actions button {
+    padding: 8px 16px; border: none; border-radius: 5px;
+    font-size: 13px; font-weight: 500;
+  }
+  .btn-approve { background: #2e7d32; color: white; }
+  .btn-reject { background: #6e2e2e; color: white; }
+  .btn-approve.pulse { animation: pulseGreen 1s infinite; }
+  @keyframes pulseGreen {
+    0%, 100% { box-shadow: 0 0 0 rgba(46, 125, 50, 0.6); }
+    50% { box-shadow: 0 0 16px rgba(46, 125, 50, 0.9); }
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #2a3d5e; border-radius: 3px; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>🏭 NPP AI Agent — GOP 시나리오 데모</h1>
+  <span class="badge">App19-1 §A · MODE 5 → MODE 4</span>
+  <span class="badge green" id="docBadge">GOP</span>
+  <span class="badge" id="llmBadge">🤖 LangGraph + Gemini</span>
+  <div class="spacer"></div>
+  <span class="clock">SIM · <span id="simClock">00:00:00</span></span>
+  <button id="replayBtn">▶ 다시 재생</button>
+</div>
+<div class="progress-bar"><div class="fill" id="progressFill"></div></div>
+
+<div class="main">
+
+  <!-- LEFT: Plant state -->
+  <div class="panel">
+    <div class="panel-title">Plant State (live)</div>
+    <div class="panel-body">
+      <div class="state-section">
+        <div class="label">Operating Mode</div>
+        <div class="mode-display">
+          <span class="mode-num" id="modeNum">5</span>
+          <span class="mode-name" id="modeName">COLD SHUTDOWN</span>
+        </div>
+      </div>
+      <div class="state-section">
+        <div class="label">Reactor Coolant System</div>
+        <div class="param"><span class="name">T_RCS avg</span><span class="value" id="v_TRCS">155.0 °F</span></div>
+        <div class="param"><span class="name">P_RCS</span><span class="value" id="v_PRCS">360 psig</span></div>
+        <div class="param"><span class="name">Heatup rate</span><span class="value" id="v_HR">— °F/hr</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Pressurizer</div>
+        <div class="param"><span class="name">Level</span><span class="value" id="v_PZRlvl">90.0 %</span></div>
+        <div class="param"><span class="name">Temperature</span><span class="value" id="v_PZRtmp">155.0 °F</span></div>
+        <div class="param"><span class="name">Steam bubble</span><span class="value" id="v_bubble">no</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Reactor Coolant Pumps</div>
+        <div class="pump-grid">
+          <div class="pump" id="rcp1"><span class="dot"></span>RCP-1</div>
+          <div class="pump" id="rcp2"><span class="dot"></span>RCP-2</div>
+          <div class="pump" id="rcp3"><span class="dot"></span>RCP-3</div>
+          <div class="pump" id="rcp4"><span class="dot"></span>RCP-4</div>
+        </div>
+      </div>
+      <div class="state-section">
+        <div class="label">Equipment</div>
+        <div class="pump-grid">
+          <div class="pump on" id="rhr"><span class="dot"></span>RHR Pump</div>
+          <div class="pump" id="heater"><span class="dot"></span>PZR Heater</div>
+        </div>
+      </div>
+      <div class="state-section">
+        <div class="label">Steam Generator</div>
+        <div class="param"><span class="name">SG Level (NR)</span><span class="value" id="v_SG">100.0 %</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Trends</div>
+        <div style="position:relative;height:160px;width:100%;background:#0c172a;border-radius:5px;padding:6px;overflow:hidden">
+          <canvas id="trendChart"></canvas>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER: Chat -->
+  <div class="panel">
+    <div class="panel-title">AI Agent — 운전 안내 (LangGraph + HITL)</div>
+    <div class="chat" id="chat"></div>
+  </div>
+
+  <!-- RIGHT: Procedure tracker -->
+  <div class="panel">
+    <div class="panel-title">Procedure Tracker</div>
+    <div class="panel-body">
+      <div class="proc-header">
+        <div class="id">GOP — Westinghouse §19.0 App19-1 §A</div>
+        <div class="title">Heatup: COLD SHUTDOWN → HOT SHUTDOWN</div>
+      </div>
+      <div id="steps"></div>
+    </div>
+  </div>
+</div>
+
+<div class="alarm-bar">
+  <span class="lbl">Events</span>
+  <div class="alarm-list" id="alarms"></div>
+</div>
+
+<!-- HITL Approval Modal -->
+<div class="modal-backdrop" id="approvalModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="title">⚠ TIER-E 조작 승인 요청 (Human-in-the-Loop)</div>
+      <div class="sub" id="apvStep">—</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-row">
+        <div class="lbl">제안 행동</div>
+        <div class="val tool-call" id="apvTool">tool(args)</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">근거 (AI 판단)</div>
+        <div class="val" id="apvRationale">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">예상 결과</div>
+        <div class="val" id="apvExpected">—</div>
+      </div>
+      <div class="modal-row" id="apvCautionsRow" style="display:none">
+        <div class="lbl">⚠ CAUTION</div>
+        <div class="caution-list"><ul id="apvCautions"></ul></div>
+        <div class="ack"><input type="checkbox" id="apvAck"> CAUTION 확인</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-reject">✗ 거부</button>
+      <button class="btn-approve" id="apvApprove">✓ 승인 후 실행</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ─────────── State ───────────
+const state = {
+  sim_time_s: 0, mode: 5, T_RCS: 155.0, P_RCS: 360.0,
+  PZR_lvl: 90.0, PZR_tmp: 155.0, SG: 100.0, HR: null,
+  RCP: [false, false, false, false],
+  RHR: true, HEATER: false, bubble: false,
+};
+const $ = id => document.getElementById(id);
+const chat = $('chat');
+const alarms = $('alarms');
+
+const STEPS = [
+  {id:"GOP-A-1", n:1, title:"운전감독 허가 확인", sub:"manual"},
+  {id:"GOP-A-2", n:2, title:"SG 수위 33±5% NR",  sub:"set_sg_level_target"},
+  {id:"GOP-A-3", n:3, title:"RCP 봉수 주입 확인", sub:"seal_inj > 0"},
+  {id:"GOP-A-4", n:4, title:"PZR 히터 기동",     sub:"⚠ ≤100°F/hr"},
+  {id:"GOP-A-5", n:5, title:"증기방울 형성",      sub:"PZR 90% → 25%"},
+  {id:"GOP-A-6", n:6, title:"RCP 1~4 기동",       sub:"P_RCS ≥ 320 psig"},
+  {id:"GOP-A-7", n:7, title:"가열률 모니터",      sub:"≤ 100°F/hr"},
+  {id:"GOP-A-8", n:8, title:"RHR 펌프 정지",      sub:"set_rhr_pump(off)"},
+  {id:"GOP-A-9", n:9, title:"T_RCS 200°F 도달",   sub:"→ MODE 4"},
+];
+
+const stepsEl = $('steps');
+STEPS.forEach(s => {
+  const d = document.createElement('div');
+  d.className = 'step'; d.dataset.step = s.id;
+  d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
+    <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
+  stepsEl.appendChild(d);
+});
+
+function fmtTime(s) {
+  const h = Math.floor(s/3600).toString().padStart(2,'0');
+  const m = Math.floor((s%3600)/60).toString().padStart(2,'0');
+  const sec = Math.floor(s%60).toString().padStart(2,'0');
+  return `${h}:${m}:${sec}`;
+}
+
+function paint() {
+  $('modeNum').textContent = state.mode;
+  $('modeName').textContent = ({5:'COLD SHUTDOWN',4:'HOT SHUTDOWN'})[state.mode] || '';
+  $('v_TRCS').textContent = state.T_RCS.toFixed(1) + ' °F';
+  $('v_PRCS').textContent = state.P_RCS.toFixed(0) + ' psig';
+  $('v_PZRlvl').textContent = state.PZR_lvl.toFixed(1) + ' %';
+  $('v_PZRtmp').textContent = state.PZR_tmp.toFixed(1) + ' °F';
+  $('v_bubble').textContent = state.bubble ? 'YES ✓' : 'no';
+  $('v_SG').textContent = state.SG.toFixed(1) + ' %';
+  $('v_HR').textContent = state.HR === null ? '— °F/hr' : state.HR.toFixed(1) + ' °F/hr';
+  if (state.HR !== null && state.HR > 100) $('v_HR').className = 'value warn';
+  else $('v_HR').className = 'value';
+  for (let i = 0; i < 4; i++) $('rcp' + (i+1)).classList.toggle('on', state.RCP[i]);
+  $('rhr').classList.toggle('on', state.RHR);
+  $('heater').classList.toggle('on', state.HEATER);
+  $('simClock').textContent = fmtTime(state.sim_time_s);
+}
+
+// ─────────── Tween ───────────
+const tweens = [];
+function tween(key, to, durMs) {
+  tweens.push({ key, from: state[key], to, t0: performance.now(), dur: durMs });
+}
+function tickTweens(now) {
+  for (let i = tweens.length - 1; i >= 0; i--) {
+    const tw = tweens[i];
+    const p = Math.min(1, (now - tw.t0) / tw.dur);
+    const eased = p < 0.5 ? 2*p*p : -1 + (4 - 2*p)*p;
+    state[tw.key] = tw.from + (tw.to - tw.from) * eased;
+    if (p >= 1) tweens.splice(i, 1);
+  }
+}
+
+// ─────────── Chart ───────────
+const trend = { t: [], TRCS: [], PRCS: [], PZR: [] };
+let chart = null;
+function ensureChart() {
+  if (chart) return chart;
+  chart = new Chart($('trendChart').getContext('2d'), {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'T_RCS °F',   data: [], borderColor: '#ff8a65', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y' },
+      { label: 'P_RCS psig', data: [], borderColor: '#4dd0e1', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y2' },
+      { label: 'PZR lvl %',  data: [], borderColor: '#aed581', borderWidth: 1.5, pointRadius: 0, yAxisID: 'y3' },
+    ]},
+    options: {
+      animation: false, responsive: true, maintainAspectRatio: false,
+      resizeDelay: 250,
+      scales: {
+        x:  { ticks: { color: '#78909c', font: {size: 9}, maxTicksLimit: 6, autoSkip: true } },
+        y:  { position: 'left',  ticks: { color: '#ff8a65', font: {size: 9} }, grid: {color: '#1e2e4a'} },
+        y2: { position: 'right', ticks: { color: '#4dd0e1', font: {size: 9} }, grid: {drawOnChartArea: false} },
+        y3: { display: false },
+      },
+      plugins: { legend: { labels: { color: '#b0bec5', font: {size: 10}, boxWidth: 10 } } },
+    },
+  });
+  return chart;
+}
+let _trendTick = 0;
+function tickTrend() {
+  _trendTick++;
+  trend.t.push((state.sim_time_s/60).toFixed(1));
+  trend.TRCS.push(state.T_RCS);
+  trend.PRCS.push(state.P_RCS);
+  trend.PZR.push(state.PZR_lvl);
+  while (trend.t.length > 60) {
+    trend.t.shift(); trend.TRCS.shift(); trend.PRCS.shift(); trend.PZR.shift();
+  }
+  if (_trendTick % 4 !== 0) return;
+  const c = ensureChart();
+  c.data.labels = trend.t;
+  c.data.datasets[0].data = trend.TRCS;
+  c.data.datasets[1].data = trend.PRCS;
+  c.data.datasets[2].data = trend.PZR;
+  c.update('none');
+}
+
+// ─────────── Chat / Step / Alarm ───────────
+function addChat(role, html) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const who = role==='operator'?'운전원':role==='ai'?'AI Agent':role==='tool'?'그래프 트레이스':role==='success'?'완료':'시스템';
+  div.innerHTML = `<div class="who">${who}</div><div class="bubble">${html}</div>`;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+function highlightCite(s) {
+  return s.replace(/(GOP-A-\d+)/g, '<span class="cite-badge">$1</span>');
+}
+function setStep(id, status) {
+  document.querySelectorAll('.step').forEach(el => {
+    if (el.dataset.step === id) {
+      el.classList.remove('active', 'done');
+      if (status) el.classList.add(status);
+    }
+  });
+}
+function addAlarm(level, text, ttl=10000) {
+  const div = document.createElement('div');
+  div.className = 'alarm ' + level;
+  div.textContent = text;
+  alarms.appendChild(div);
+  setTimeout(() => { div.style.opacity = '0'; setTimeout(() => div.remove(), 400); }, ttl);
+}
+
+// ─────────── Modal control ───────────
+function openModal(payload) {
+  $('apvStep').textContent = payload.cited_step_id || '—';
+  $('apvTool').textContent = `${payload.tool}(${JSON.stringify(payload.args || {})})`;
+  $('apvRationale').textContent = payload.rationale || '—';
+  $('apvExpected').textContent = payload.expected_outcome || '—';
+  const cautRow = $('apvCautionsRow');
+  const cautUl = $('apvCautions');
+  cautUl.innerHTML = '';
+  if (payload.cautions && payload.cautions.length) {
+    cautRow.style.display = '';
+    payload.cautions.forEach(c => { const li = document.createElement('li'); li.textContent = c; cautUl.appendChild(li); });
+  } else cautRow.style.display = 'none';
+  $('apvAck').checked = false;
+  $('approvalModal').classList.add('show');
+}
+function closeModal() { $('approvalModal').classList.remove('show'); }
+function pulseApprove(on) { $('apvApprove').classList.toggle('pulse', !!on); }
+
+// ─────────── Scenario timeline ───────────
+const scenario = [
+  // === Phase 0: bootstrap ===
+  { t: 800,  fn: () => addChat('operator', '기동을 시작합니다. 현재 상태를 확인하고 GOP 절차를 안내해주세요.') },
+  { t: 1600, fn: () => addChat('status', '🤖 AI 분석 시작 (LangGraph)...') },
+  { t: 2300, fn: () => addChat('tool', '<span class="icon">▸</span>node:assess_state — get_plant_state, get_alarm_list') },
+  { t: 2900, fn: () => addChat('tool', '<span class="icon">▸</span>node:retrieve_procedure — search_procedure(doc_type=GOP)') },
+  { t: 3400, fn: () => addChat('tool', '<span class="icon">▸</span>node:plan_action — LLM 호출 (Gemini 2.5 Flash)') },
+  { t: 4000, fn: () => addChat('ai', highlightCite('현재 <strong>MODE 5 (COLD SHUTDOWN)</strong> 확인. T_RCS 155°F, P_RCS 360 psig, RHR 운전 중. <strong>Appendix 19-1 §A</strong>에 따라 진행합니다.')) },
+
+  // === Step 1: supervisor permission (advise, no HITL) ===
+  { t: 4800, fn: () => setStep('GOP-A-1', 'active') },
+  { t: 5000, fn: () => addChat('ai', highlightCite('<strong>Step 1.</strong> 운전감독 허가 받으셨습니까? GOP-A-1 (수동 확인)')) },
+  { t: 6800, fn: () => addChat('operator', '예, 운전감독 허가 완료.') },
+  { t: 7100, fn: () => { setStep('GOP-A-1', 'done'); addAlarm('info', 'Step 1 완료'); } },
+
+  // === Step 2: SG level target (HITL) ===
+  { t: 8000, fn: () => { setStep('GOP-A-2', 'active'); addChat('operator', '다음 단계 진행하세요.'); } },
+  { t: 8400, fn: () => addChat('tool', '<span class="icon">▸</span>node:plan_action → kind=execute, tool=set_sg_level_target') },
+  { t: 9100, fn: () => addChat('ai', highlightCite('<strong>Step 2.</strong> SG 수위를 wet layup 100% → 33% NR로 조정합니다. GOP-A-2')) },
+  { t: 10000, fn: () => addChat('tool', '<span class="icon">⚠</span>node:approval_gate → interrupt() — 운전원 승인 대기') },
+  { t: 10500, fn: () => openModal({
+      cited_step_id: 'GOP-A-2',
+      tool: 'set_sg_level_target',
+      args: { pct: 33 },
+      rationale: 'wet-layup 100%에서 정상 운전 범위 33±5% NR로 조정 필요',
+      expected_outcome: 'SG_level_target_pct → 33, SG NR 수위 감소 시작',
+      cautions: [],
+    }) },
+  { t: 12500, fn: () => pulseApprove(true) },
+  { t: 13200, fn: () => { closeModal(); addChat('operator', '✓ 승인'); } },
+  { t: 13500, fn: () => addChat('tool', '<span class="icon">▸</span>node:execute_action → HMAC 토큰 검증 → set_sg_level_target(33)') },
+  { t: 14000, fn: () => { tween('SG', 33, 6000); } },
+  { t: 14500, fn: () => addChat('success', highlightCite('✓ set_sg_level_target 완료. SG 수위 100% → 33% 조정 중. GOP-A-2 완료.')) },
+  { t: 14700, fn: () => setStep('GOP-A-2', 'done') },
+
+  // === Step 3: seal injection verify (manual) ===
+  { t: 15800, fn: () => { setStep('GOP-A-3', 'active'); addChat('ai', highlightCite('<strong>Step 3.</strong> RCP 봉수 주입 유량 확인 — 현재 8.0 gpm (정상). GOP-A-3')) } },
+  { t: 17000, fn: () => addChat('operator', '봉수 주입 정상 확인했습니다.') },
+  { t: 17300, fn: () => setStep('GOP-A-3', 'done') },
+
+  // === Step 4: PZR heater (HITL with CAUTION) ===
+  { t: 18200, fn: () => { setStep('GOP-A-4', 'active'); addChat('operator', '다음 진행해주세요.'); } },
+  { t: 18800, fn: () => addChat('tool', '<span class="icon">▸</span>node:plan_action → tool=set_pzr_heater (E-tier)') },
+  { t: 19400, fn: () => addChat('ai', highlightCite('<strong>Step 4.</strong> 가압기 히터 기동 제안. <span style="color:#ffd54f">⚠ CAUTION: 가열률 ≤ 100°F/hr 유지 필수.</span> GOP-A-4')) },
+  { t: 20000, fn: () => addChat('tool', '<span class="icon">⚠</span>node:approval_gate → interrupt() — CAUTION 체크 필요') },
+  { t: 20500, fn: () => openModal({
+      cited_step_id: 'GOP-A-4',
+      tool: 'set_pzr_heater',
+      args: { on: true },
+      rationale: 'Step 4: PZR을 가열하여 증기방울 형성 준비',
+      expected_outcome: 'PZR_heater_on = True, 약 30분 후 PZR 온도 ~428°F (saturation) 도달',
+      cautions: [
+        'Do not exceed a heatup rate of 100°F/hr in the pressurizer or RCS.',
+        'Do not exceed 320°F ΔT between pressurizer and spray temperature.',
+      ],
+    }) },
+  { t: 22500, fn: () => { $('apvAck').checked = true; pulseApprove(true); } },
+  { t: 23500, fn: () => { closeModal(); addChat('operator', '✓ CAUTION 확인 후 승인'); } },
+  { t: 23800, fn: () => addChat('tool', '<span class="icon">▸</span>node:execute_action → set_pzr_heater(on=true)') },
+  { t: 24200, fn: () => { state.HEATER = true; addAlarm('caution', 'PZR 가열률 모니터링 활성'); } },
+  { t: 24500, fn: () => addChat('success', highlightCite('✓ PZR 히터 ON. PZR 온도 상승 시작. GOP-A-4 완료.')) },
+  { t: 24800, fn: () => { setStep('GOP-A-4', 'done'); setStep('GOP-A-5', 'active'); } },
+  { t: 25000, fn: () => tween('PZR_tmp', 428, 14000) },
+
+  // === Step 5: steam bubble formation (over time) ===
+  { t: 25500, fn: () => addChat('ai', highlightCite('<strong>Step 5.</strong> 증기방울 형성 진행 중. 충전 30 gpm / 방출 30 gpm 균형 유지. GOP-A-5')) },
+  { t: 33000, fn: () => addChat('ai', 'PZR 온도 ≈ 280°F. 가열 정상.') },
+  { t: 39000, fn: () => { state.bubble = true; tween('PZR_lvl', 25, 4500); addAlarm('success', 'Steam bubble formed'); } },
+  { t: 39500, fn: () => addChat('success', highlightCite('✓ 포화온도 428°F 도달. Steam bubble 형성. PZR 수위 90→25% 조정 중.')) },
+  { t: 44000, fn: () => { setStep('GOP-A-5', 'done'); setStep('GOP-A-6', 'active'); } },
+
+  // === Step 6: 4 RCP startup (HITL) ===
+  { t: 44500, fn: () => addChat('ai', highlightCite('<strong>Step 6.</strong> RCP 1~4 순차 기동 (P_RCS 365 psig ≥ 320 psig 만족). GOP-A-6')) },
+  { t: 45500, fn: () => openModal({
+      cited_step_id: 'GOP-A-6',
+      tool: 'start_rcp',
+      args: { pump_id: 1 },
+      rationale: 'P_RCS ≥ 320 psig 충족, seal_inj 8 gpm 정상. RCP 1번 기동',
+      expected_outcome: 'RCP-1 운전. 이후 RCP-2,3,4 순차 기동',
+      cautions: ['RCP 기동 전 P_RCS ≥ 320 psig 및 seal injection > 0 확인'],
+    }) },
+  { t: 47500, fn: () => { closeModal(); addChat('operator', '✓ 4기 모두 일괄 승인'); } },
+  { t: 47800, fn: () => addChat('tool', '<span class="icon">▸</span>node:execute_action × 4 — start_rcp(1..4)') },
+  { t: 48000, fn: () => state.RCP[0] = true },
+  { t: 48400, fn: () => state.RCP[1] = true },
+  { t: 48800, fn: () => state.RCP[2] = true },
+  { t: 49200, fn: () => { state.RCP[3] = true; addAlarm('success', '4 RCPs 운전 중'); } },
+  { t: 49500, fn: () => { state.HR = 0; tween('HR', 50, 4000); } },
+  { t: 49700, fn: () => { setStep('GOP-A-6', 'done'); setStep('GOP-A-7', 'active'); } },
+
+  // === Step 7: heatup rate monitor ===
+  { t: 50000, fn: () => addChat('ai', highlightCite('<strong>Step 7.</strong> 가열률 모니터 — 50°F/hr (제한 100°F/hr 이내, 정상). GOP-A-7')) },
+  { t: 51500, fn: () => setStep('GOP-A-7', 'done') },
+
+  // === Step 8: RHR off (HITL) ===
+  { t: 52500, fn: () => { setStep('GOP-A-8', 'active'); addChat('ai', highlightCite('<strong>Step 8.</strong> 모든 RCP 운전 중 — RHR 펌프 정지 제안. GOP-A-8')) } },
+  { t: 53500, fn: () => openModal({
+      cited_step_id: 'GOP-A-8',
+      tool: 'set_rhr_pump',
+      args: { on: false },
+      rationale: 'RCP 4기 운전 중이므로 RHR 강제 순환 불필요',
+      expected_outcome: 'RHR_pump_on = False, RCS 자연 가열 50°F/hr 지속',
+      cautions: [],
+    }) },
+  { t: 55000, fn: () => { closeModal(); addChat('operator', '✓ 승인'); } },
+  { t: 55300, fn: () => { state.RHR = false; addAlarm('info', 'RHR pump OFF — RCS 자연 가열 단계'); } },
+  { t: 55600, fn: () => { setStep('GOP-A-8', 'done'); setStep('GOP-A-9', 'active'); } },
+
+  // === Step 9: T_RCS to 200°F ===
+  { t: 56200, fn: () => addChat('ai', highlightCite('<strong>Step 9.</strong> T_RCS 200°F까지 자연 가열 진행 (ETA ≈ 30분 sim). GOP-A-9')) },
+  { t: 57000, fn: () => tween('T_RCS', 200, 10000) },
+
+  // === MODE transition ===
+  { t: 67500, fn: () => { state.mode = 4; addAlarm('success', '✓ MODE 5 → MODE 4 진입'); } },
+  { t: 68000, fn: () => addChat('success', highlightCite('🎯 <strong>MODE 4 (HOT SHUTDOWN) 진입 완료.</strong> Appendix 19-1 §A 종료. 다음 단계는 §B (MODE 4 → 3).')) },
+  { t: 68500, fn: () => setStep('GOP-A-9', 'done') },
+  { t: 70000, fn: () => addChat('operator', '수고하셨습니다. §B는 다음 세션에서 진행하겠습니다.') },
+];
+
+// ─────────── Engine ───────────
+let scenarioStart = null;
+let scenarioIdx = 0;
+const TOTAL_DURATION = 72000;
+const SIM_RATE = 60;       // 1 real sec = 60 sim sec
+let lastFrameMs = null;
+
+function reset() {
+  Object.assign(state, {
+    sim_time_s: 0, mode: 5, T_RCS: 155.0, P_RCS: 360.0,
+    PZR_lvl: 90.0, PZR_tmp: 155.0, SG: 100.0, HR: null,
+    RCP: [false, false, false, false],
+    RHR: true, HEATER: false, bubble: false,
+  });
+  tweens.length = 0;
+  scenarioIdx = 0;
+  scenarioStart = performance.now();
+  lastFrameMs = scenarioStart;
+  trend.t.length = 0; trend.TRCS.length = 0; trend.PRCS.length = 0; trend.PZR.length = 0;
+  if (chart) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); chart.update('none'); }
+  chat.innerHTML = '';
+  alarms.innerHTML = '';
+  document.querySelectorAll('.step').forEach(el => el.classList.remove('active', 'done'));
+  closeModal();
+  pulseApprove(false);
+}
+
+function frame(now) {
+  const elapsed = now - scenarioStart;
+  while (scenarioIdx < scenario.length && scenario[scenarioIdx].t <= elapsed) {
+    try { scenario[scenarioIdx].fn(); } catch(e) { console.error(e); }
+    scenarioIdx++;
+  }
+  tickTweens(now);
+  const dt = (now - lastFrameMs) / 1000;
+  state.sim_time_s += dt * SIM_RATE;
+  lastFrameMs = now;
+  // PZR pressure follows PZR temp after bubble forms (rough)
+  if (state.bubble) {
+    const t = Math.min(1, (state.PZR_tmp - 280) / 200);
+    state.P_RCS = 360 + 35 * t;
+  }
+  paint();
+  if (Math.floor(elapsed / 250) !== Math.floor((elapsed - dt*1000) / 250)) tickTrend();
+  $('progressFill').style.width = Math.min(100, (elapsed / TOTAL_DURATION) * 100) + '%';
+  if (elapsed < TOTAL_DURATION + 3000) requestAnimationFrame(frame);
+}
+
+$('replayBtn').addEventListener('click', () => { reset(); requestAnimationFrame(frame); });
+reset();
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
