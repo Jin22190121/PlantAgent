@@ -1,0 +1,179 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 980" font-family="-apple-system, 'Segoe UI', 'Noto Sans KR', Arial, sans-serif">
+  <defs>
+    <marker id="arr" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L0,10 L8,5 z" fill="#37474f"/>
+    </marker>
+    <marker id="arrR" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L0,10 L8,5 z" fill="#c62828"/>
+    </marker>
+    <marker id="arrG" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0,0 L0,10 L8,5 z" fill="#2e7d32"/>
+    </marker>
+  </defs>
+
+  <rect width="1400" height="980" fill="#fafbfc"/>
+
+  <!-- Title -->
+  <text x="700" y="40" font-size="24" font-weight="700" fill="#1a237e" text-anchor="middle">
+    🔄 운전원 1회 요청 처리 흐름 — EOP 시나리오 예시
+  </text>
+  <text x="700" y="64" font-size="13" fill="#546e7a" text-anchor="middle">
+    상황: 100% 출력 운전 중 RCS 누설 → PZR 압력 1640 psig (SI 자동 setpoint 1750 미만)
+  </text>
+
+  <!-- Lifelines (5 columns) -->
+  <g font-size="13" font-weight="700" text-anchor="middle">
+    <rect x="60"   y="90" width="200" height="40" rx="6" fill="#fff3e0" stroke="#ef6c00" stroke-width="2"/>
+    <text x="160"  y="115" fill="#bf360c">👤 운전원 + UI</text>
+
+    <rect x="320"  y="90" width="200" height="40" rx="6" fill="#e3f2fd" stroke="#1565c0" stroke-width="2"/>
+    <text x="420"  y="115" fill="#0d47a1">⚡ FastAPI</text>
+
+    <rect x="580"  y="90" width="200" height="40" rx="6" fill="#e0f7fa" stroke="#00838f" stroke-width="2"/>
+    <text x="680"  y="115" fill="#006064">🧠 LangGraph + 🛡 Tier</text>
+
+    <rect x="840"  y="90" width="200" height="40" rx="6" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2"/>
+    <text x="940"  y="115" fill="#4a148c">🤖 LLM (Gemini)</text>
+
+    <rect x="1100" y="90" width="240" height="40" rx="6" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2"/>
+    <text x="1220" y="115" fill="#1b5e20">🏭 시뮬레이터 + 📚 RAG</text>
+  </g>
+
+  <!-- Vertical lifelines -->
+  <line x1="160"  y1="130" x2="160"  y2="940" stroke="#ef6c00" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="420"  y1="130" x2="420"  y2="940" stroke="#1565c0" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="680"  y1="130" x2="680"  y2="940" stroke="#00838f" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="940"  y1="130" x2="940"  y2="940" stroke="#7b1fa2" stroke-width="1.5" stroke-dasharray="4,4"/>
+  <line x1="1220" y1="130" x2="1220" y2="940" stroke="#2e7d32" stroke-width="1.5" stroke-dasharray="4,4"/>
+
+  <!-- ========== Step 1 ========== -->
+  <g>
+    <circle cx="40" cy="165" r="15" fill="#1a237e"/>
+    <text x="40" y="170" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+    <text x="65" y="170" font-size="13" fill="#37474f" font-weight="600">시뮬레이터에서 자동 알람 발생</text>
+  </g>
+  <path d="M 1220,165 L 175,165" stroke="#c62828" stroke-width="2" marker-end="url(#arrR)"/>
+  <rect x="200" y="148" width="950" height="34" rx="4" fill="#ffebee" stroke="#c62828"/>
+  <text x="675" y="170" font-size="12" font-weight="600" fill="#b71c1c" text-anchor="middle">
+    🚨 SSE /plant/stream  →  Alarm: "PZR 압력 1640 psig &lt; 1750 psig — SI 작동 신호"
+  </text>
+
+  <!-- ========== Step 2 ========== -->
+  <g>
+    <circle cx="40" cy="220" r="15" fill="#1a237e"/>
+    <text x="40" y="225" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+    <text x="65" y="225" font-size="13" fill="#37474f" font-weight="600">운전원이 채팅으로 즉시 조치 요청</text>
+  </g>
+  <path d="M 175,250 L 405,250" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="290" y="245" font-size="11" fill="#546e7a" text-anchor="middle">
+    POST /chat/stream
+  </text>
+  <text x="290" y="267" font-size="11" fill="#37474f" font-style="italic" text-anchor="middle">
+    "현재 알람을 분석하고 IMMEDIATE ACTION을 안내해주세요"
+  </text>
+
+  <!-- ========== Step 3 ========== -->
+  <g>
+    <circle cx="40" cy="310" r="15" fill="#1a237e"/>
+    <text x="40" y="315" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+    <text x="65" y="315" font-size="13" fill="#37474f" font-weight="600">LangGraph 노드 자동 호출 (assess → retrieve)</text>
+  </g>
+  <path d="M 435,300 L 665,300" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="550" y="295" font-size="11" fill="#546e7a" text-anchor="middle">입력 전달</text>
+
+  <path d="M 695,335 L 1205,335" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="950" y="330" font-size="11" fill="#546e7a" text-anchor="middle">
+    get_plant_state · search_procedure (RAG, doc_type=EOP)
+  </text>
+  <path d="M 1205,360 L 695,360" stroke="#2e7d32" stroke-width="2" marker-end="url(#arrG)"/>
+  <text x="950" y="378" font-size="11" fill="#1b5e20" text-anchor="middle">
+    MODE 1, P_RCS 1640 + 후보 step: EOP-E0-1, EOP-E0-4
+  </text>
+
+  <!-- ========== Step 4 ========== -->
+  <g>
+    <circle cx="40" cy="425" r="15" fill="#1a237e"/>
+    <text x="40" y="430" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+    <text x="65" y="430" font-size="13" fill="#37474f" font-weight="600">AI가 LLM에 계획 요청 (plan_action 노드)</text>
+  </g>
+  <path d="M 695,415 L 925,415" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="810" y="410" font-size="11" fill="#546e7a" text-anchor="middle">컨텍스트 + 절차 후보</text>
+
+  <path d="M 925,445 L 695,445" stroke="#2e7d32" stroke-width="2" marker-end="url(#arrG)"/>
+  <text x="810" y="463" font-size="11" fill="#1b5e20" text-anchor="middle">
+    JSON: kind=execute, tool=manual_reactor_trip, cited=EOP-E0-1
+  </text>
+
+  <!-- ========== Step 5 (HITL) ========== -->
+  <g>
+    <circle cx="40" cy="510" r="15" fill="#e65100"/>
+    <text x="40" y="515" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+    <text x="65" y="515" font-size="13" fill="#bf360c" font-weight="700">★ HITL 승인 게이트 — interrupt() 호출, 그래프 일시정지</text>
+  </g>
+
+  <!-- HITL central box -->
+  <rect x="540" y="525" width="320" height="105" rx="8" fill="#fff8e1" stroke="#e65100" stroke-width="3"/>
+  <text x="700" y="548" font-size="13" font-weight="700" fill="#bf360c" text-anchor="middle">⚠ approval_gate 노드</text>
+  <text x="700" y="566" font-size="11" fill="#5d4037" text-anchor="middle">tier=E → interrupt(payload)</text>
+  <text x="700" y="582" font-size="11" fill="#5d4037" text-anchor="middle">SqliteSaver에 상태 저장</text>
+  <text x="700" y="602" font-size="10" fill="#6d4c41" text-anchor="middle">⌛ 운전원 결정 대기...</text>
+  <text x="700" y="620" font-size="10" font-style="italic" fill="#bf360c" text-anchor="middle">웹 세션 끊겨도 복구 가능</text>
+
+  <!-- Arrow back to UI for modal -->
+  <path d="M 540,575 L 180,575" stroke="#ef6c00" stroke-width="2" stroke-dasharray="5,3" marker-end="url(#arrR)"/>
+  <text x="360" y="568" font-size="11" fill="#bf360c" text-anchor="middle" font-weight="600">SSE: approval_request 이벤트</text>
+  <text x="360" y="590" font-size="11" fill="#bf360c" text-anchor="middle">→ UI에 승인 모달 표시</text>
+
+  <!-- ========== Step 6 ========== -->
+  <g>
+    <circle cx="40" cy="675" r="15" fill="#1a237e"/>
+    <text x="40" y="680" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+    <text x="65" y="680" font-size="13" fill="#37474f" font-weight="600">운전원이 승인 모달에서 [✓ 승인] 클릭</text>
+  </g>
+  <path d="M 175,665 L 405,665" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="290" y="660" font-size="11" fill="#546e7a" text-anchor="middle">POST /chat/approve</text>
+  <text x="290" y="678" font-size="11" fill="#37474f" font-style="italic" text-anchor="middle">{ approved: true }</text>
+
+  <!-- ========== Step 7 ========== -->
+  <g>
+    <circle cx="40" cy="735" r="15" fill="#1a237e"/>
+    <text x="40" y="740" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">7</text>
+    <text x="65" y="740" font-size="13" fill="#37474f" font-weight="600">그래프 재개 → execute_action → 시뮬레이터 mutate</text>
+  </g>
+  <path d="M 435,725 L 665,725" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="550" y="720" font-size="11" fill="#546e7a" text-anchor="middle">Command(resume=...)</text>
+
+  <path d="M 695,755 L 1205,755" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="950" y="750" font-size="11" fill="#546e7a" text-anchor="middle">
+    HMAC 토큰 검증 → manual_reactor_trip()
+  </text>
+  <path d="M 1205,780 L 695,780" stroke="#2e7d32" stroke-width="2" marker-end="url(#arrG)"/>
+  <text x="950" y="798" font-size="11" fill="#1b5e20" text-anchor="middle">
+    ✓ reactor_tripped=True, turbine_tripped=True, power 100→0%
+  </text>
+
+  <!-- ========== Step 8 ========== -->
+  <g>
+    <circle cx="40" cy="855" r="15" fill="#1a237e"/>
+    <text x="40" y="860" font-size="13" font-weight="700" fill="#fff" text-anchor="middle">8</text>
+    <text x="65" y="860" font-size="13" fill="#37474f" font-weight="600">verify → log → respond → UI 업데이트</text>
+  </g>
+  <path d="M 695,855 L 1205,855" stroke="#37474f" stroke-width="1.5" marker-end="url(#arr)"/>
+  <text x="950" y="850" font-size="10" fill="#546e7a" text-anchor="middle">log_action (TrainingMCP)</text>
+
+  <path d="M 665,890 L 435,890" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="550" y="885" font-size="11" fill="#546e7a" text-anchor="middle">final_answer</text>
+
+  <path d="M 405,920 L 175,920" stroke="#37474f" stroke-width="2" marker-end="url(#arr)"/>
+  <text x="290" y="915" font-size="11" fill="#546e7a" text-anchor="middle">SSE: answer 이벤트</text>
+  <text x="290" y="933" font-size="10" font-style="italic" fill="#37474f" text-anchor="middle">
+    "✓ EOP-E0-1 실행 완료. 다음 EOP-E0-2 터빈 트립 확인..."
+  </text>
+
+  <!-- Bottom note -->
+  <rect x="60" y="950" width="1280" height="24" rx="4" fill="#fff" stroke="#90a4ae"/>
+  <text x="700" y="967" font-size="11" fill="#37474f" text-anchor="middle">
+    → 이후 EOP-E0-2 ~ E0-21까지 동일한 8단계 흐름을 반복하며 운전원이 매 조작을 승인
+  </text>
+</svg>

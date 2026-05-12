@@ -1,0 +1,319 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1500 1080" font-family="-apple-system, 'Segoe UI', 'Noto Sans KR', Arial, sans-serif">
+  <!--
+    NPP AI Agent — System Architecture (beginner-friendly)
+    Layers (top → bottom): User → UI → API → AI orchestration → Safety/Tools → Core Services → Data
+  -->
+  <defs>
+    <!-- Drop shadow -->
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="3"/>
+      <feOffset dx="1" dy="2"/>
+      <feComponentTransfer><feFuncA type="linear" slope="0.25"/></feComponentTransfer>
+      <feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <!-- Arrow head -->
+    <marker id="arrow" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,12 L10,6 z" fill="#37474f"/>
+    </marker>
+    <marker id="arrowOrange" markerWidth="12" markerHeight="12" refX="10" refY="6" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,12 L10,6 z" fill="#ef6c00"/>
+    </marker>
+  </defs>
+
+  <!-- Background -->
+  <rect width="1500" height="1080" fill="#fafbfc"/>
+
+  <!-- TITLE -->
+  <text x="750" y="40" font-size="26" font-weight="700" fill="#1a237e" text-anchor="middle">
+    🏭 NPP AI Agent — 시스템 구조
+  </text>
+  <text x="750" y="68" font-size="14" fill="#546e7a" text-anchor="middle">
+    Westinghouse PWR 운영절차서 (GOP / EOP / AOP) 기반 실시간 운전 지원 시스템
+  </text>
+
+  <!-- ═══ LAYER 1: USER ═══ -->
+  <rect x="40" y="100" width="1420" height="100" rx="10" fill="#fff3e0" stroke="#ef6c00" stroke-width="2" filter="url(#shadow)"/>
+  <text x="60" y="125" font-size="13" font-weight="700" fill="#e65100">① 사용자 (User Layer)</text>
+
+  <g transform="translate(140,130)">
+    <circle cx="0" cy="30" r="28" fill="#ffb74d" stroke="#ef6c00" stroke-width="2"/>
+    <text x="0" y="38" font-size="22" text-anchor="middle">👤</text>
+    <text x="0" y="80" font-size="13" font-weight="600" fill="#bf360c" text-anchor="middle">운전원 (Operator)</text>
+  </g>
+
+  <g transform="translate(280,118)">
+    <rect width="280" height="80" rx="8" fill="#fff" stroke="#ef6c00" stroke-width="2"/>
+    <text x="140" y="25" font-size="14" font-weight="700" fill="#bf360c" text-anchor="middle">🖥  웹 브라우저</text>
+    <text x="140" y="46" font-size="11" fill="#546e7a" text-anchor="middle">• 시나리오 선택 (GOP/EOP/AOP)</text>
+    <text x="140" y="62" font-size="11" fill="#546e7a" text-anchor="middle">• AI 채팅 + 승인 모달 + 절차 트래커</text>
+  </g>
+
+  <!-- Arrow user → server -->
+  <path d="M 420,200 L 420,235" stroke="#ef6c00" stroke-width="2.5" marker-end="url(#arrowOrange)"/>
+  <text x="430" y="222" font-size="11" fill="#bf360c">HTTP / SSE</text>
+
+  <!-- Right-side legend: file -->
+  <g transform="translate(900,118)">
+    <rect width="540" height="80" rx="8" fill="#fff" stroke="#90a4ae" stroke-width="1"/>
+    <text x="20" y="22" font-size="12" font-weight="700" fill="#37474f">📂 관련 파일</text>
+    <text x="20" y="42" font-size="11" fill="#546e7a" font-family="Consolas, monospace">
+      static/index.html  ←  3-pane UI (좌:상태+추세  중:채팅  우:절차 트래커)
+    </text>
+    <text x="20" y="60" font-size="11" fill="#546e7a" font-family="Consolas, monospace">
+      static/demo.html   ←  자동 재생 시연 영상 (50초)
+    </text>
+  </g>
+
+  <!-- ═══ LAYER 2: WEB SERVER ═══ -->
+  <rect x="40" y="240" width="1420" height="100" rx="10" fill="#e3f2fd" stroke="#1565c0" stroke-width="2" filter="url(#shadow)"/>
+  <text x="60" y="265" font-size="13" font-weight="700" fill="#0d47a1">② 웹 서버 (FastAPI)</text>
+
+  <g transform="translate(140,275)">
+    <rect width="700" height="55" rx="6" fill="#fff" stroke="#1565c0"/>
+    <text x="350" y="22" font-size="14" font-weight="700" fill="#0d47a1" text-anchor="middle">⚡ web_server.py — REST + Server-Sent Events</text>
+    <text x="350" y="44" font-size="11" fill="#546e7a" text-anchor="middle">
+      GET /plant/stream  •  POST /chat/stream  •  POST /chat/approve  •  POST /sim/action  •  GET /health
+    </text>
+  </g>
+
+  <g transform="translate(870,275)">
+    <rect width="570" height="55" rx="6" fill="#fff" stroke="#90a4ae"/>
+    <text x="20" y="22" font-size="12" font-weight="700" fill="#37474f">하는 일</text>
+    <text x="20" y="42" font-size="11" fill="#546e7a">
+      운전원 ↔ AI 채팅 중계, 시뮬레이터 상태 1Hz 푸시, 운전원 직접 조작 라우팅, HITL 승인 흐름
+    </text>
+  </g>
+
+  <!-- Arrow server → graph -->
+  <path d="M 750,340 L 750,375" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <text x="760" y="362" font-size="11" fill="#37474f">운전원 발화 + 세션 ID</text>
+
+  <!-- ═══ LAYER 3: AI ORCHESTRATION (LangGraph) ═══ -->
+  <rect x="40" y="380" width="1420" height="230" rx="10" fill="#e0f7fa" stroke="#00838f" stroke-width="2" filter="url(#shadow)"/>
+  <text x="60" y="405" font-size="13" font-weight="700" fill="#006064">③ AI 오케스트레이션 (LangGraph 상태머신, 8 노드)</text>
+
+  <!-- 8 nodes horizontal flow -->
+  <g transform="translate(70,425)">
+    <!-- Node 1 -->
+    <rect x="0" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="60" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">1. 상태 파악</text>
+    <text x="60" y="40" font-size="9" fill="#546e7a" text-anchor="middle">assess_state</text>
+    <text x="60" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">시뮬레이터 조회</text>
+
+    <path d="M120,30 L160,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 2 -->
+    <rect x="160" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="220" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">2. 절차 검색</text>
+    <text x="220" y="40" font-size="9" fill="#546e7a" text-anchor="middle">retrieve_procedure</text>
+    <text x="220" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">RAG (3-tier)</text>
+
+    <path d="M280,30 L320,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 3 -->
+    <rect x="320" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="380" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">3. 계획</text>
+    <text x="380" y="40" font-size="9" fill="#546e7a" text-anchor="middle">plan_action</text>
+    <text x="380" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">LLM 호출</text>
+
+    <path d="M440,30 L480,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 4 — HITL GATE (highlighted) -->
+    <rect x="480" y="-6" width="140" height="72" rx="6" fill="#fff8e1" stroke="#f57f17" stroke-width="3"/>
+    <text x="550" y="14" font-size="11" font-weight="700" fill="#e65100" text-anchor="middle">⚠ 4. 승인 게이트</text>
+    <text x="550" y="30" font-size="9" fill="#bf360c" text-anchor="middle">approval_gate</text>
+    <text x="550" y="46" font-size="9" fill="#bf360c" text-anchor="middle">interrupt() 일시정지</text>
+    <text x="550" y="60" font-size="9" font-weight="700" fill="#e65100" text-anchor="middle">★ Human-in-the-Loop</text>
+
+    <path d="M620,30 L660,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 5 -->
+    <rect x="660" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="720" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">5. 실행</text>
+    <text x="720" y="40" font-size="9" fill="#546e7a" text-anchor="middle">execute_action</text>
+    <text x="720" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">HMAC 토큰 검증</text>
+
+    <path d="M780,30 L820,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 6 -->
+    <rect x="820" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="880" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">6. 검증</text>
+    <text x="880" y="40" font-size="9" fill="#546e7a" text-anchor="middle">verify_outcome</text>
+    <text x="880" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">상태 변화 확인</text>
+
+    <path d="M940,30 L980,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 7 -->
+    <rect x="980" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="1040" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">7. 기록</text>
+    <text x="1040" y="40" font-size="9" fill="#546e7a" text-anchor="middle">log_step</text>
+    <text x="1040" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">TrainingMCP</text>
+
+    <path d="M1100,30 L1140,30" stroke="#37474f" stroke-width="1.5" marker-end="url(#arrow)"/>
+
+    <!-- Node 8 -->
+    <rect x="1140" y="0" width="120" height="60" rx="6" fill="#fff" stroke="#00838f"/>
+    <text x="1200" y="22" font-size="11" font-weight="700" fill="#004d40" text-anchor="middle">8. 응답</text>
+    <text x="1200" y="40" font-size="9" fill="#546e7a" text-anchor="middle">respond</text>
+    <text x="1200" y="54" font-size="9" fill="#90a4ae" text-anchor="middle">UI로 전송</text>
+  </g>
+
+  <!-- HITL approval modal callout -->
+  <g transform="translate(440,520)">
+    <rect width="240" height="80" rx="6" fill="#fffde7" stroke="#f57f17" stroke-width="1.5" stroke-dasharray="4,3"/>
+    <text x="120" y="20" font-size="11" font-weight="700" fill="#e65100" text-anchor="middle">HITL 승인 모달이 나타남</text>
+    <text x="20" y="38" font-size="10" fill="#5d4037">• 인용 절차 step ID</text>
+    <text x="20" y="52" font-size="10" fill="#5d4037">• 도구 + 인자 + 예상 결과</text>
+    <text x="20" y="66" font-size="10" fill="#5d4037">• CAUTION 체크박스 강제</text>
+    <text x="20" y="76" font-size="9" fill="#bf360c" font-weight="600">[✓ 승인] [✗ 거부] [✎ 수정]</text>
+  </g>
+  <path d="M 550,498 L 550,520" stroke="#f57f17" stroke-width="1.5" stroke-dasharray="4,3"/>
+
+  <!-- File annotation right -->
+  <g transform="translate(720,530)">
+    <text x="0" y="0" font-size="11" font-weight="700" fill="#37474f">📂 관련 파일</text>
+    <text x="0" y="18" font-size="11" fill="#37474f" font-family="Consolas, monospace">npp_agent/graph/state.py · nodes.py · build.py</text>
+    <text x="0" y="34" font-size="11" fill="#37474f" font-family="Consolas, monospace">SqliteSaver: data/checkpoints/agent.sqlite (세션 영속화)</text>
+    <text x="0" y="50" font-size="11" fill="#37474f" font-family="Consolas, monospace">LangFuse 콜백: npp_agent/observability/ (env-gated)</text>
+  </g>
+
+  <!-- Arrow Layer 3 → Layer 4 -->
+  <path d="M 250,610 L 250,650" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 750,610 L 750,650" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 1250,610 L 1250,650" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- ═══ LAYER 4: TOOLS + SAFETY ═══ -->
+  <rect x="40" y="655" width="1420" height="135" rx="10" fill="#f3e5f5" stroke="#7b1fa2" stroke-width="2" filter="url(#shadow)"/>
+  <text x="60" y="680" font-size="13" font-weight="700" fill="#4a148c">④ 도구 + 안전 계층</text>
+
+  <!-- Safety -->
+  <g transform="translate(70,695)">
+    <rect width="280" height="80" rx="6" fill="#fff" stroke="#7b1fa2"/>
+    <text x="140" y="20" font-size="13" font-weight="700" fill="#4a148c" text-anchor="middle">🛡 Tier Guard (안전 분류)</text>
+    <text x="140" y="38" font-size="10" fill="#37474f" text-anchor="middle">R(읽기 9) · A(기록 1) · E(실행 22)</text>
+    <text x="140" y="54" font-size="10" fill="#7b1fa2" text-anchor="middle">E-tier 도구는 HMAC 승인 토큰 필수</text>
+    <text x="140" y="68" font-size="9" fill="#90a4ae" text-anchor="middle">npp_agent/safety/tier_guard.py</text>
+  </g>
+
+  <!-- Router -->
+  <g transform="translate(380,695)">
+    <rect width="280" height="80" rx="6" fill="#fff" stroke="#7b1fa2"/>
+    <text x="140" y="20" font-size="13" font-weight="700" fill="#4a148c" text-anchor="middle">🔧 MCP Router (도구 디스패치)</text>
+    <text x="140" y="38" font-size="10" fill="#37474f" text-anchor="middle">35개 도구 자동 라우팅</text>
+    <text x="140" y="54" font-size="10" fill="#37474f" text-anchor="middle">source=agent/operator_ui/internal</text>
+    <text x="140" y="68" font-size="9" fill="#90a4ae" text-anchor="middle">npp_agent/mcp_servers/router.py</text>
+  </g>
+
+  <!-- LLM Factory -->
+  <g transform="translate(690,695)">
+    <rect width="290" height="80" rx="6" fill="#fff" stroke="#7b1fa2"/>
+    <text x="145" y="20" font-size="13" font-weight="700" fill="#4a148c" text-anchor="middle">🤖 LLM Factory</text>
+    <text x="145" y="38" font-size="10" fill="#37474f" text-anchor="middle">Gemini 2.5 Flash (기본) + Groq (fallback)</text>
+    <text x="145" y="54" font-size="10" fill="#37474f" text-anchor="middle">자동 재시도 + 한도 도달 시 자동 전환</text>
+    <text x="145" y="68" font-size="9" fill="#90a4ae" text-anchor="middle">npp_agent/llm/factory.py</text>
+  </g>
+
+  <!-- LangFuse (optional) -->
+  <g transform="translate(1010,695)">
+    <rect width="420" height="80" rx="6" fill="#fff" stroke="#7b1fa2" stroke-dasharray="6,3"/>
+    <text x="210" y="20" font-size="13" font-weight="700" fill="#4a148c" text-anchor="middle">📊 LangFuse (관측성, 환경변수 시 활성)</text>
+    <text x="210" y="38" font-size="10" fill="#37474f" text-anchor="middle">노드별 트레이스 · 운전원 승인 이벤트 · 토큰/비용 모니터링</text>
+    <text x="210" y="54" font-size="10" fill="#37474f" text-anchor="middle">데이터 주권 — 자체호스팅 (LANGFUSE_HOST=https://...)</text>
+    <text x="210" y="68" font-size="9" fill="#90a4ae" text-anchor="middle">npp_agent/observability/langfuse_setup.py</text>
+  </g>
+
+  <!-- Arrow Layer 4 → 5 -->
+  <path d="M 200,790 L 200,825" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 750,790 L 750,825" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 1300,790 L 1300,825" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- ═══ LAYER 5: CORE SERVICES ═══ -->
+  <rect x="40" y="830" width="1420" height="135" rx="10" fill="#e8f5e9" stroke="#2e7d32" stroke-width="2" filter="url(#shadow)"/>
+  <text x="60" y="855" font-size="13" font-weight="700" fill="#1b5e20">⑤ 핵심 서비스</text>
+
+  <!-- Simulator -->
+  <g transform="translate(70,870)">
+    <rect width="380" height="82" rx="6" fill="#fff" stroke="#2e7d32"/>
+    <text x="190" y="20" font-size="14" font-weight="700" fill="#1b5e20" text-anchor="middle">🏭 가상 시뮬레이터</text>
+    <text x="190" y="38" font-size="10" fill="#37474f" text-anchor="middle">PlantState(20+ vars) · ODE 1°/2° dynamics · asyncio 60×</text>
+    <text x="190" y="54" font-size="10" fill="#37474f" text-anchor="middle">3 시나리오: GOP heatup / EOP trip+SI / AOP CR-evac</text>
+    <text x="190" y="70" font-size="9" fill="#90a4ae" text-anchor="middle">
+      npp_agent/sim/state.py · dynamics.py · engine.py
+    </text>
+  </g>
+
+  <!-- RAG -->
+  <g transform="translate(470,870)">
+    <rect width="490" height="82" rx="6" fill="#fff" stroke="#2e7d32"/>
+    <text x="245" y="20" font-size="14" font-weight="700" fill="#1b5e20" text-anchor="middle">📚 절차서 RAG (하이브리드 검색)</text>
+    <text x="245" y="38" font-size="10" fill="#37474f" text-anchor="middle">
+      Vector(ChromaDB) + TF-IDF Lexical → RRF 융합
+    </text>
+    <text x="245" y="54" font-size="10" fill="#37474f" text-anchor="middle">
+      3-tier 청크 — A(step) 42 · B(body) 109 · C(caution) 7
+    </text>
+    <text x="245" y="70" font-size="10" font-weight="600" fill="#2e7d32" text-anchor="middle">
+      Recall@3 = 90.9%  ·  Top-1 = 77.3%   ✅ PoC 합격
+    </text>
+  </g>
+
+  <!-- Training -->
+  <g transform="translate(980,870)">
+    <rect width="450" height="82" rx="6" fill="#fff" stroke="#2e7d32"/>
+    <text x="225" y="20" font-size="14" font-weight="700" fill="#1b5e20" text-anchor="middle">📝 행동 로그 (TrainingMCP)</text>
+    <text x="225" y="38" font-size="10" fill="#37474f" text-anchor="middle">매 승인된 조작을 절차 step ID와 함께 기록</text>
+    <text x="225" y="54" font-size="10" fill="#37474f" text-anchor="middle">훈련 평가/회귀 분석 입력 데이터</text>
+    <text x="225" y="70" font-size="9" fill="#90a4ae" text-anchor="middle">npp_agent/mcp_servers/training.py</text>
+  </g>
+
+  <!-- Arrow Layer 5 → 6 -->
+  <path d="M 260,965 L 260,990" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 715,965 L 715,990" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+  <path d="M 1205,965 L 1205,990" stroke="#37474f" stroke-width="2.5" marker-end="url(#arrow)"/>
+
+  <!-- ═══ LAYER 6: DATA SOURCES ═══ -->
+  <rect x="40" y="995" width="1420" height="70" rx="10" fill="#eceff1" stroke="#455a64" stroke-width="2" filter="url(#shadow)"/>
+
+  <text x="60" y="1018" font-size="13" font-weight="700" fill="#263238">⑥ 데이터 소스</text>
+
+  <g transform="translate(170,1025)">
+    <rect width="120" height="32" rx="4" fill="#fff" stroke="#90a4ae"/>
+    <text x="60" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">📕 GOP PDF</text>
+    <text x="60" y="46" font-size="9" fill="#78909c" text-anchor="middle">Westinghouse §19.0</text>
+  </g>
+  <g transform="translate(310,1025)">
+    <rect width="120" height="32" rx="4" fill="#fff" stroke="#90a4ae"/>
+    <text x="60" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">📕 EOP PDF</text>
+    <text x="60" y="46" font-size="9" fill="#78909c" text-anchor="middle">Ginna E-0</text>
+  </g>
+  <g transform="translate(450,1025)">
+    <rect width="120" height="32" rx="4" fill="#fff" stroke="#90a4ae"/>
+    <text x="60" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">📕 AOP PDF</text>
+    <text x="60" y="46" font-size="9" fill="#78909c" text-anchor="middle">Point Beach AOP-10</text>
+  </g>
+
+  <g transform="translate(680,1025)">
+    <rect width="150" height="32" rx="4" fill="#fff" stroke="#90a4ae"/>
+    <text x="75" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">🗄 ChromaDB</text>
+    <text x="75" y="46" font-size="9" fill="#78909c" text-anchor="middle">158 청크 벡터 인덱스</text>
+  </g>
+
+  <g transform="translate(870,1025)">
+    <rect width="150" height="32" rx="4" fill="#fff" stroke="#90a4ae"/>
+    <text x="75" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">🗄 SqliteSaver</text>
+    <text x="75" y="46" font-size="9" fill="#78909c" text-anchor="middle">LangGraph checkpoint</text>
+  </g>
+
+  <g transform="translate(1060,1025)">
+    <rect width="160" height="32" rx="4" fill="#fff" stroke="#90a4ae"/>
+    <text x="80" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">🌐 Gemini API</text>
+    <text x="80" y="46" font-size="9" fill="#78909c" text-anchor="middle">Google AI Studio</text>
+  </g>
+
+  <g transform="translate(1260,1025)">
+    <rect width="180" height="32" rx="4" fill="#fff" stroke="#90a4ae" stroke-dasharray="4,3"/>
+    <text x="90" y="20" font-size="11" font-weight="600" fill="#37474f" text-anchor="middle">🌐 Groq (옵션)</text>
+    <text x="90" y="46" font-size="9" fill="#78909c" text-anchor="middle">Llama-4 fallback</text>
+  </g>
+</svg>
