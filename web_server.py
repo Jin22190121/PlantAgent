@@ -104,13 +104,27 @@ async def plant_state():
 @app.get("/plant/stream")
 async def plant_stream():
     async def gen() -> AsyncIterator[bytes]:
-        while True:
-            payload = engine.get_state()
-            yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
-            await asyncio.sleep(1.0)
+        try:
+            while True:
+                payload = engine.get_state()
+                yield f"data: {json.dumps(payload, ensure_ascii=False)}\n\n".encode()
+                await asyncio.sleep(1.0)
+        except asyncio.CancelledError:
+            # Client disconnected — clean exit, do not propagate as ERROR
+            return
+        except Exception as e:  # pragma: no cover
+            yield f"event: error\ndata: {e}\n\n".encode()
+            return
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache",
-                                      "X-Accel-Buffering": "no"})
+                                      "X-Accel-Buffering": "no",
+                                      "Connection": "keep-alive"})
+
+
+# Silence noisy favicon 404 (browsers always probe this URL)
+@app.get("/favicon.ico", include_in_schema=False)
+async def favicon():
+    return JSONResponse({}, status_code=204)
 
 
 # ── sim control ────────────────────────────────────────────
@@ -164,7 +178,6 @@ async def _stream_graph(graph, inputs, config) -> AsyncIterator[str]:
         async for chunk in graph.astream(inputs, config):
             # chunk is dict: {node_name: state_update} or {"__interrupt__": (...)}
             if "__interrupt__" in chunk:
-                # LangGraph >=0.2 surfaces interrupts at chunk level
                 ints = chunk["__interrupt__"]
                 if ints:
                     payload = ints[0].value if hasattr(ints[0], "value") else ints[0]
@@ -181,6 +194,9 @@ async def _stream_graph(graph, inputs, config) -> AsyncIterator[str]:
                     yield _evt("answer", text=update["final_answer"])
         if not interrupted:
             _awaiting_approval.pop(session_id, None)
+    except asyncio.CancelledError:
+        # Operator browser closed mid-stream — clean exit.
+        return
     except Exception as e:
         yield _evt("error", text=f"graph error: {e}")
 
