@@ -440,7 +440,9 @@
       </div>
       <div class="state-section">
         <div class="label">Trends (last 60 min sim)</div>
-        <canvas id="trendChart" height="160" style="background:#0c172a;border-radius:5px;padding:6px"></canvas>
+        <div style="position:relative;height:170px;width:100%;background:#0c172a;border-radius:5px;padding:6px;overflow:hidden">
+          <canvas id="trendChart"></canvas>
+        </div>
       </div>
     </div>
   </div>
@@ -687,9 +689,14 @@ function ensureChart() {
       { label: 'PZR lvl %',  data: [], borderColor: '#aed581', backgroundColor: 'transparent', yAxisID: 'y3', borderWidth: 1.5, pointRadius: 0 },
     ]},
     options: {
-      animation: false, responsive: true, maintainAspectRatio: false,
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      // Stops the infinite resize loop when the parent panel's scrollbar
+      // toggles in/out as the chart grows. 250 ms is enough to settle.
+      resizeDelay: 250,
       scales: {
-        x:  { ticks: { color: '#78909c', font: {size: 9} } },
+        x:  { ticks: { color: '#78909c', font: {size: 9}, maxTicksLimit: 6, autoSkip: true } },
         y:  { position: 'left',  ticks: { color: '#ff8a65', font: {size: 9} }, grid: {color: '#1e2e4a'} },
         y2: { position: 'right', ticks: { color: '#4dd0e1', font: {size: 9} }, grid: {drawOnChartArea: false} },
         y3: { display: false },
@@ -701,16 +708,21 @@ function ensureChart() {
   });
   return chart;
 }
+// Throttle: only redraw every Nth incoming SSE event to avoid GC churn
+let _trendTick = 0;
 function pushTrend(s) {
+  _trendTick++;
   const tMin = (s.sim_time_s / 60).toFixed(1);
   trend.t.push(tMin);
   trend.TRCS.push(s.T_RCS_avg_F);
   trend.PRCS.push(s.P_RCS_psig);
   trend.PZR.push(s.PZR_level_pct);
-  // window: last 120 samples (~2 min real time × sim_speed)
-  while (trend.t.length > 120) {
+  // Cap window at 60 samples (1 minute of real-time data at 1Hz)
+  while (trend.t.length > 60) {
     trend.t.shift(); trend.TRCS.shift(); trend.PRCS.shift(); trend.PZR.shift();
   }
+  // Redraw every 2nd sample → max ~0.5 Hz UI update (smooth, no flicker)
+  if (_trendTick % 2 !== 0) return;
   const c = ensureChart();
   c.data.labels = trend.t;
   c.data.datasets[0].data = trend.TRCS;

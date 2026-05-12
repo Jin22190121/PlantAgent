@@ -27,8 +27,19 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from dotenv import load_dotenv
-load_dotenv()
+from dotenv import load_dotenv, find_dotenv
+# Search parent directories for .env (handy when cwd is not the repo root)
+_dotenv_path = find_dotenv(usecwd=True)
+if _dotenv_path:
+    load_dotenv(_dotenv_path, override=False)
+    print(f"[env] loaded {_dotenv_path}")
+else:
+    load_dotenv(override=False)
+    print("[env] no .env found (relying on process environment)")
+
+# Boot-time diagnostic
+print(f"[env] GOOGLE_API_KEY {'set' if os.environ.get('GOOGLE_API_KEY') else 'MISSING'} "
+      f"· GROQ_API_KEY {'set' if os.environ.get('GROQ_API_KEY') else 'MISSING'}")
 
 from npp_agent.sim import SimulationEngine
 from npp_agent.mcp_servers.simulator import SimulatorMCP
