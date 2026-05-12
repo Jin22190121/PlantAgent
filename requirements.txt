@@ -18,8 +18,8 @@ langgraph-checkpoint-sqlite>=2.0.0
 aiosqlite>=0.20.0
 langchain-google-genai>=2.0.0
 langchain-core>=0.3.0
-# (선택) Groq fallback
-# langchain-groq>=0.2.0
+# Groq fallback — 무료 키: https://console.groq.com/keys
+langchain-groq>=0.2.0
 
 # ── 관측성 (Phase 3, env-gated) ───────
 # langfuse>=2.0.0       # LANGFUSE_*_KEY 설정 시 자동 활성화

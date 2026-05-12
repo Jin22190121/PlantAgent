@@ -194,13 +194,21 @@ def make_plan_action(llm):
         except Exception as e:
             err = str(e).lower()
             hint = ""
-            if "429" in err or "quota" in err or "rate" in err or "resource" in err:
-                hint = ("\n💡 LLM 한도 도달로 보입니다. 해결법:\n"
-                        "  • 잠시 (1분) 기다린 후 다시 시도\n"
-                        "  • Groq fallback 활성화 — export GROQ_API_KEY=... 후 재기동\n"
+            if "503" in err or "unavailable" in err or "overload" in err:
+                hint = ("\n💡 Gemini 서버 일시 과부하(503)입니다 — 사용자 한도 X. 해결법:\n"
+                        "  • 30초~1분 후 다시 시도 (보통 일시적)\n"
+                        "  • Groq fallback 활성화 (가장 안정적):\n"
+                        "      ① https://console.groq.com/keys 에서 무료 키 발급\n"
+                        "      ② echo 'GROQ_API_KEY=gsk_...' >> .env\n"
+                        "      ③ ./scripts/run.sh deps && ./scripts/run.sh restart\n"
                         "  • 모델 변경 — export GEMINI_MODEL=gemini-2.0-flash 후 재기동")
+            elif "429" in err or "quota" in err or "rate" in err or "resourceexhausted" in err:
+                hint = ("\n💡 사용 한도 도달(429). 해결법:\n"
+                        "  • 1분 후(분당 한도) 또는 24h 후(일일 한도) 자동 회복\n"
+                        "  • Groq fallback 추가 — https://console.groq.com/keys\n"
+                        "  • 모델 변경 — export GEMINI_MODEL=gemini-2.0-flash")
             elif "api_key" in err or "credential" in err or "auth" in err:
-                hint = ("\n💡 API 키 인식 실패. export GOOGLE_API_KEY=... 후 서버 재기동.")
+                hint = ("\n💡 API 키 인식 실패. .env 파일에 GOOGLE_API_KEY 설정 후 재기동.")
             return {
                 "proposed_action": {
                     "tool": "", "args": {},

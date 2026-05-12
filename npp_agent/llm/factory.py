@@ -18,13 +18,14 @@ from typing import Optional
 
 
 def _wrap_retry(model):
-    """Best-effort: enable LangChain's built-in retry for transient API errors.
+    """Enable LangChain's built-in retry for transient API errors.
+    Tuned for Gemini 503 UNAVAILABLE / 429 quota / network blips.
     Falls back to bare model if the LC version doesn't support .with_retry()."""
     try:
         return model.with_retry(
             retry_if_exception_type=(Exception,),
             wait_exponential_jitter=True,
-            stop_after_attempt=4,   # ~1s, 2s, 4s, 8s backoff
+            stop_after_attempt=6,   # 1·2·4·8·16·32s with jitter ≈ ~60s total
         )
     except Exception:
         return model
@@ -40,7 +41,7 @@ def _gemini():
         model=model_name,
         api_key=api_key,
         temperature=0.2,
-        max_retries=2,
+        max_retries=4,   # SDK-level retry on top of LangChain's
     ))
 
 
