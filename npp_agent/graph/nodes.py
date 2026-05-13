@@ -194,19 +194,12 @@ def make_plan_action(llm):
         except Exception as e:
             err = str(e).lower()
             hint = ""
-            if "503" in err or "unavailable" in err or "overload" in err:
-                hint = ("\n💡 Gemini 서버 일시 과부하(503)입니다 — 사용자 한도 X. 해결법:\n"
-                        "  • 30초~1분 후 다시 시도 (보통 일시적)\n"
-                        "  • Groq fallback 활성화 (가장 안정적):\n"
-                        "      ① https://console.groq.com/keys 에서 무료 키 발급\n"
-                        "      ② echo 'GROQ_API_KEY=gsk_...' >> .env\n"
-                        "      ③ ./scripts/run.sh deps && ./scripts/run.sh restart\n"
-                        "  • 모델 변경 — export GEMINI_MODEL=gemini-2.0-flash 후 재기동")
-            elif "429" in err or "quota" in err or "rate" in err or "resourceexhausted" in err:
-                hint = ("\n💡 사용 한도 도달(429). 해결법:\n"
-                        "  • 1분 후(분당 한도) 또는 24h 후(일일 한도) 자동 회복\n"
-                        "  • Groq fallback 추가 — https://console.groq.com/keys\n"
-                        "  • 모델 변경 — export GEMINI_MODEL=gemini-2.0-flash")
+            if "503" in err or "unavailable" in err or "overload" in err \
+                    or "429" in err or "quota" in err or "resourceexhausted" in err:
+                hint = ("\n💡 체인의 모든 Gemini 모델이 동시에 한도/과부하입니다.\n"
+                        "  • 1~5분 후 자동 회복 (각 모델 RPM 한도 1분마다 리셋)\n"
+                        "  • 체인 순서 사용자 지정: export GEMINI_MODELS=\"gemini-2.0-flash-lite,gemini-1.5-flash-8b,...\"\n"
+                        "  • 일일 한도(RPD) 도달이면 자정(태평양 시간) 후 회복")
             elif "api_key" in err or "credential" in err or "auth" in err:
                 hint = ("\n💡 API 키 인식 실패. .env 파일에 GOOGLE_API_KEY 설정 후 재기동.")
             return {

@@ -1115,17 +1115,16 @@ fetch('/health').then(r=>r.json()).then(h => {
   const b = document.getElementById('llmBadge');
   const L = h.llm || {};
   if (L.any_available) {
-    const txt = '🤖 ' + (L.primary || '?') +
-                (L.fallback_active ? ' (+fallback)' : '');
-    b.textContent = txt;
-    b.title = `Models: ${L.available.join(', ')} | Gemini=${L.gemini_model} Groq=${L.groq_model}`;
+    const n = (L.available || []).length;
+    b.textContent = `🤖 Gemini 체인 × ${n}`;
+    b.title = '체인 순서:\n' + (L.rotation || []).map((m,i) => `${i+1}. ${m}`).join('\n')
+            + '\n\n각 모델은 별도 quota 풀이라 한 모델이 한도 도달하면 자동으로 다음 모델로 폴백됩니다.';
   } else {
     b.textContent = '⚠ LLM 비활성 — 채팅 시도 시 안내';
     b.className = 'badge warn';
     const errs = L.errors || {};
     b.title = '원인:\n' + Object.entries(errs).map(([k,v])=>`${k}: ${v}`).join('\n')
-            + '\n\n조치:\n• export GOOGLE_API_KEY=... (Gemini)\n'
-            + '• export GROQ_API_KEY=... (Groq fallback)\n• 그 후 서버 재기동';
+            + '\n\n조치:\n• export GOOGLE_API_KEY=... 후 서버 재기동';
   }
 });
 addMsg('status', '실시간 시뮬레이션 시작. 좌측 상태 패널과 연동됩니다.');
