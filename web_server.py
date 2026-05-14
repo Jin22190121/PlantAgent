@@ -204,6 +204,13 @@ async def _stream_graph(graph, inputs, config) -> AsyncIterator[str]:
                 break
             for node_name, update in chunk.items():
                 yield _evt("graph_node", node=node_name, update=_safe(update))
+                # Surface explicitly-acknowledged completed steps as a structured
+                # SSE event so the UI marks the tracker without text heuristics.
+                if isinstance(update, dict):
+                    pa = update.get("proposed_action") or {}
+                    cs = pa.get("completed_step_ids") if isinstance(pa, dict) else None
+                    if cs:
+                        yield _evt("step_done", step_ids=list(cs))
                 if isinstance(update, dict) and update.get("final_messages"):
                     for m in update["final_messages"]:
                         yield _evt("message", text=m)

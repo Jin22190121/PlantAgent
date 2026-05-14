@@ -379,6 +379,7 @@
   <span class="badge" id="llmBadge">LLM 확인 중...</span>
   <div class="spacer"></div>
   <span class="clock">SIM · <span id="simClock">00:00:00</span></span>
+  <button id="autoAdvanceBtn" onclick="toggleAutoAdvance()" title="AI가 단계 완료 후 자동으로 다음 단계를 안내합니다">🔁 자동 진행: ON</button>
   <button onclick="ctl('pause')">⏸ Pause</button>
   <button onclick="ctl('resume')">▶ Resume</button>
   <button class="danger" onclick="if(confirm('시뮬레이터를 초기 상태로 리셋하시겠습니까?')) changeScenario(document.getElementById('scenarioSel').value)">↺ Reset</button>
@@ -651,15 +652,9 @@ function renderTracker(docType) {
     d.className = 'step';
     d.dataset.step = s.id;
     d.style.cursor = 'pointer';
-    d.title = '클릭: 원문 보기  ·  ✓ 버튼: 수동 완료 마킹';
-    // Click body → open citation modal
+    d.title = '클릭: 원문 보기 — AI가 완료를 보고하면 자동 체크됩니다';
     d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
-      <div class="text">${s.title}<div class="sub">${s.sub}</div></div>
-      <button class="manual-ack" title="수동으로 완료 표시 / 해제"
-              onclick="event.stopPropagation(); toggleManualDone('${s.id}');"
-              style="background:transparent;border:1px solid #2a3d5e;color:#78909c;
-                     border-radius:4px;padding:2px 6px;font-size:10px;cursor:pointer;
-                     margin-left:4px">✓</button>`;
+      <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
     d.onclick = () => showStep(s.id);
     stepsEl.appendChild(d);
   });
@@ -674,16 +669,6 @@ function renderTracker(docType) {
     qrow.appendChild(b);
   });
 }
-
-// Manually toggle a step's done state (for verification-only steps that
-// have no automatic detection signal).
-function toggleManualDone(stepId) {
-  const el = document.querySelector(`.step[data-step="${stepId}"]`);
-  if (!el) return;
-  el.classList.toggle('done');
-  el.classList.remove('active');
-}
-window.toggleManualDone = toggleManualDone;
 
 renderTracker("GOP");
 
@@ -910,13 +895,15 @@ function setStep(stepId, status) {
 async function changeScenario(scenarioId) {
   seenAlarms.clear();
   clearTrend();
+  autoAdvanceCount = 0;
+  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
   document.getElementById('alarms').innerHTML = '';
   document.querySelectorAll('.step').forEach(el => el.classList.remove('done', 'active'));
   await fetch('/sim/control', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({op:'reset_scenario', value: scenarioId})
   });
-  addMsg('status', '시나리오 변경: ' + scenarioId);
+  addMsg('status', '시나리오 변경: ' + scenarioId + ' · 자동 진행 카운터 초기화');
 }
 
 // ─────────── SSE for plant state ───────────
@@ -999,19 +986,81 @@ async function readSSE(res, onEvent) {
     }
   }
 }
+// ─────────── Auto-advance state ───────────
+let autoAdvance = true;          // toggle button
+let autoAdvanceCount = 0;        // safety counter per session
+const AUTO_ADVANCE_MAX = 20;
+let autoAdvanceTimer = null;
+
+function toggleAutoAdvance() {
+  autoAdvance = !autoAdvance;
+  document.getElementById('autoAdvanceBtn').textContent =
+    autoAdvance ? '🔁 자동 진행: ON' : '⏸ 자동 진행: OFF';
+}
+
+function markStepsDone(ids) {
+  (ids || []).forEach(id => {
+    if (typeof id !== 'string') return;
+    setStep(id, 'done');
+  });
+}
+
+// Heuristic fallback: parse "✓ STEPID 완료" or "STEPID 완료" from answer text
+function parseStepDoneFromText(text) {
+  const re = /(?:✓\s*)?((?:GOP-A-|EOP-E0-|AOP-10-)\d+)\s*(?:완료|완수|확인됨|done|complete)/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(text)) !== null) out.push(m[1].toUpperCase());
+  return out;
+}
+
+function shouldContinue(text) {
+  if (!autoAdvance) return false;
+  if (autoAdvanceCount >= AUTO_ADVANCE_MAX) return false;
+  if (!text) return false;
+  // Stop on end-of-procedure markers
+  if (/절차\s*완료|절차\s*종료|MODE\s*4\s*\(.*HOT\s*SHUTDOWN\).*진입.*완료|END\s*OF\s*PROCEDURE/i.test(text))
+    return false;
+  // Stop on error
+  if (/AI\s*응답\s*오류|오류:|error|실패/i.test(text)) return false;
+  // Stop if the AI is asking the operator a real question (not a rhetorical one)
+  // — heuristic: ends with '?' AND no "[제안 행동]" / 도구 호출 흔적
+  if (/[?？]\s*$/.test(text.trim()) && !/제안\s*행동|승인|approve/i.test(text))
+    return false;
+  return true;
+}
+
+function scheduleAutoAdvance() {
+  if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
+  autoAdvanceTimer = setTimeout(() => {
+    autoAdvanceCount++;
+    const inp = document.getElementById('input');
+    inp.value = '확인했습니다. 다음 단계를 진행해주세요.';
+    addMsg('status', `↻ 자동 진행 (${autoAdvanceCount}/${AUTO_ADVANCE_MAX})`);
+    send();
+  }, 2500);
+}
+
 function handleEvent(d) {
-  if (d.type === 'status')
+  if (d.type === 'status') {
     addMsg('status', escapeHtml(d.text));
-  else if (d.type === 'graph_node')
+  } else if (d.type === 'graph_node') {
     addMsg('tool', `<span class="icon">▸</span>node:${escapeHtml(d.node)}`);
-  else if (d.type === 'message')
+  } else if (d.type === 'step_done') {
+    // Structured signal from the LLM via the graph
+    markStepsDone(d.step_ids);
+  } else if (d.type === 'message') {
     addMsg('ai', highlightCite(escapeHtml(d.text)));
-  else if (d.type === 'answer')
+    markStepsDone(parseStepDoneFromText(d.text));
+  } else if (d.type === 'answer') {
     addMsg('ai', highlightCite(escapeHtml(d.text)));
-  else if (d.type === 'approval_request')
+    markStepsDone(parseStepDoneFromText(d.text));
+    if (shouldContinue(d.text)) scheduleAutoAdvance();
+  } else if (d.type === 'approval_request') {
     showApprovalModal(d);
-  else if (d.type === 'error')
+  } else if (d.type === 'error') {
     addMsg('error', escapeHtml(d.text));
+  }
 }
 function highlightCite(s) {
   return s.replace(/((?:GOP-A-|EOP-E0-|AOP-10-)\d+)/g,
@@ -1074,6 +1123,11 @@ async function approve(yes) {
   if (!pendingApproval) return;
   const reason = yes ? 'operator approved' : (prompt('거부 사유:', 'reject') || 'rejected');
   hideApprovalModal();
+  // Pause auto-advance when operator rejects so the agent doesn't immediately
+  // loop back into the same proposal.
+  if (!yes && autoAdvanceTimer) {
+    clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null;
+  }
   addMsg('operator', yes ? '✓ 승인' : '✗ 거부 — ' + escapeHtml(reason));
   try {
     const res = await fetch('/chat/approve', {

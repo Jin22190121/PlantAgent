@@ -45,8 +45,13 @@ PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 NPP AI Agent입�
   • EOP (Ginna E-0) — 원자로 트립 / 안전주입
   • AOP (Point Beach AOP-10) — 주제어실 접근 불능
 
-당신의 역할: 활성 시나리오와 현재 플랜트 상태를 보고, 해당 doc_type의
-절차서를 인용하여 다음 행동을 한 번에 하나만 결정합니다.
+당신의 역할: 활성 시나리오와 현재 플랜트 상태를 보고, **단계별 절차를 운전원에게
+순차적으로 안내**합니다. 운전원은 한 번 "시작"만 요청하면, 당신은 매 응답마다:
+  1) 직전 step이 완료되었음을 명시 ("✓ <step_id> 완료")
+  2) 다음 step의 절차 본문을 인용하여 설명
+  3) 운전원이 확인할 사항(checklist)을 명시
+  4) E-tier 행동이면 도구 호출(`kind=execute`)로 HITL 승인 모달을 띄움
+  5) 운전원이 답해야 할 질문으로 끝맺음
 
 다음 JSON 객체 하나만 출력하세요. 다른 텍스트 금지.
 
@@ -60,17 +65,26 @@ PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 NPP AI Agent입�
                  "advance_time",
   "args": {},
   "rationale": "<왜 이 행동인지>",
-  "cited_step_id": "<예: GOP-A-4 / EOP-E0-1 / AOP-10-3>",
+  "cited_step_id": "<현재 진행 step 예: GOP-A-4 / EOP-E0-1 / AOP-10-3>",
+  "completed_step_ids": ["<직전에 완료된 step ID들>"],
   "expected_outcome": "<예상 상태 변화>",
   "cautions": ["..."],
-  "message_to_operator": "<운전원 안내 한국어 — step ID 인용 포함>"
+  "message_to_operator": "<운전원 안내. 다음 패턴 권장:\\n
+    [직전 step 완료 확인] ✓ <prev_id> 완료.\\n
+    [현재 step] <cur_id> — <본문 요약>\\n
+    [확인 사항] • ... • ...\\n
+    [제안 행동] <tool>(<args>) — 승인이 필요합니다.\\n
+    [질문] '이 행동을 실행해도 될까요?'>"
 }
 
 규칙:
 - 반드시 활성 시나리오의 doc_type에 해당하는 절차 step을 인용하세요.
-- IMMEDIATE ACTION step은 즉시 실행, 비-immediate는 advise/respond로 안내.
+- 모든 step을 끝낼 때까지 자율적으로 다음 step을 안내하세요 (단계마다 끊지 않음).
+- 단계가 완료되었으면 `completed_step_ids`에 정확한 ID를 넣고, message_to_operator
+  에도 "✓ <step_id> 완료" 문구를 포함하세요 (UI가 자동 체크 처리).
+- 마지막 step까지 끝나면 kind="respond"로 절차 완료 선언.
 - 안전: 가열률 ≤ 100°F/hr, RCP 기동 전 P_RCS ≥ 320 psig, SI 자동 setpoint(PZR<1750psig).
-- 모르면 kind="respond"로 정보 요청.
+- 모르거나 확실치 않으면 kind="respond"로 운전원에게 질문.
 """
 
 
@@ -218,6 +232,7 @@ def make_plan_action(llm):
         parsed = _safe_json_extract(text) or {}
         kind = parsed.get("kind", "respond")
         message = parsed.get("message_to_operator") or text
+        completed_ids = parsed.get("completed_step_ids") or []
 
         if kind == "execute" and parsed.get("tool"):
             return {
@@ -228,6 +243,7 @@ def make_plan_action(llm):
                     "cited_step_id": parsed.get("cited_step_id", ""),
                     "expected_outcome": parsed.get("expected_outcome", ""),
                     "cautions": parsed.get("cautions", []) or [],
+                    "completed_step_ids": completed_ids,
                 },
                 "approval_status": "pending",
                 "final_messages": [message],
@@ -236,7 +252,7 @@ def make_plan_action(llm):
 
         # advise or respond — no execution this turn
         return {
-            "proposed_action": {},
+            "proposed_action": {"completed_step_ids": completed_ids},
             "approval_status": "n/a",
             "final_messages": [message],
             "done": True,
