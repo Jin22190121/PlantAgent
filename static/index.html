@@ -379,7 +379,6 @@
   <span class="badge" id="llmBadge">LLM 확인 중...</span>
   <div class="spacer"></div>
   <span class="clock">SIM · <span id="simClock">00:00:00</span></span>
-  <button id="autoAdvanceBtn" onclick="toggleAutoAdvance()" title="AI가 단계 완료 후 자동으로 다음 단계를 안내합니다">🔁 자동 진행: ON</button>
   <button onclick="ctl('pause')">⏸ Pause</button>
   <button onclick="ctl('resume')">▶ Resume</button>
   <button class="danger" onclick="if(confirm('시뮬레이터를 초기 상태로 리셋하시겠습니까?')) changeScenario(document.getElementById('scenarioSel').value)">↺ Reset</button>
@@ -460,7 +459,7 @@
       <button class="quick" onclick="quick('현재 활성 알람을 확인하고 대응절차를 알려주세요.')">🚨 알람 확인</button>
     </div>
     <div class="composer">
-      <textarea id="input" placeholder="운전원 메시지 입력 (Enter 전송 / Shift+Enter 줄바꿈)" rows="1"></textarea>
+      <textarea id="input" placeholder="단계 완료 후 직접 입력하세요 — 예: '확인했습니다. 다음 단계 진행' (Enter 전송)" rows="1"></textarea>
       <button id="sendBtn" onclick="send()">전송</button>
     </div>
   </div>
@@ -569,6 +568,7 @@ const DOC_INFO = {
       {id:"GOP-A-9", n:9, title:"T_RCS 200°F 도달", sub:"→ MODE 4"},
     ],
     quicks: [
+      {label:"➡ 다음 단계", text:"확인했습니다. 다음 단계를 진행해주세요."},
       {label:"📊 다음 절차", text:"현재 플랜트 상태를 확인하고 다음 절차를 안내해주세요."},
       {label:"🔥 PZR 히터 기동", text:"GOP-A-4 단계: PZR 히터 기동을 진행해주세요."},
       {label:"💨 Steam bubble", text:"가압기 증기방울 형성 절차를 안내해주세요."},
@@ -598,6 +598,7 @@ const DOC_INFO = {
       {id:"EOP-E0-21", n:21, title:"Tavg 547°F 안정", sub:"set_atm_dump"},
     ],
     quicks: [
+      {label:"➡ 다음 단계", text:"확인했습니다. 다음 단계를 진행해주세요."},
       {label:"🚨 즉시 조치", text:"E-0 IMMEDIATE ACTION 1~12 단계를 순차 안내해주세요."},
       {label:"⚡ 원자로 트립", text:"EOP-E0-1: 원자로 수동 트립을 수행해주세요."},
       {label:"💧 SI 작동", text:"EOP-E0-4: 안전주입 수동 작동을 진행해주세요."},
@@ -628,6 +629,7 @@ const DOC_INFO = {
       {id:"AOP-10-17", n:17, title:"재진입 → EOP-0", sub:""},
     ],
     quicks: [
+      {label:"➡ 다음 단계", text:"확인했습니다. 다음 단계를 진행해주세요."},
       {label:"⚡ 양 호기 트립", text:"AOP-10-1: 양 호기 수동 원자로 트립을 수행해주세요."},
       {label:"🔒 MSIV 차단", text:"AOP-10-3: MSIV를 차단하고 대기증기방출을 1005 psig로 설정해주세요."},
       {label:"💧 RWST 정렬", text:"AOP-10-5: 충전펌프 흡입을 RWST로 정렬해주세요."},
@@ -895,15 +897,13 @@ function setStep(stepId, status) {
 async function changeScenario(scenarioId) {
   seenAlarms.clear();
   clearTrend();
-  autoAdvanceCount = 0;
-  if (autoAdvanceTimer) { clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null; }
   document.getElementById('alarms').innerHTML = '';
   document.querySelectorAll('.step').forEach(el => el.classList.remove('done', 'active'));
   await fetch('/sim/control', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({op:'reset_scenario', value: scenarioId})
   });
-  addMsg('status', '시나리오 변경: ' + scenarioId + ' · 자동 진행 카운터 초기화');
+  addMsg('status', '시나리오 변경: ' + scenarioId);
 }
 
 // ─────────── SSE for plant state ───────────
@@ -986,18 +986,6 @@ async function readSSE(res, onEvent) {
     }
   }
 }
-// ─────────── Auto-advance state ───────────
-let autoAdvance = true;          // toggle button
-let autoAdvanceCount = 0;        // safety counter per session
-const AUTO_ADVANCE_MAX = 20;
-let autoAdvanceTimer = null;
-
-function toggleAutoAdvance() {
-  autoAdvance = !autoAdvance;
-  document.getElementById('autoAdvanceBtn').textContent =
-    autoAdvance ? '🔁 자동 진행: ON' : '⏸ 자동 진행: OFF';
-}
-
 function markStepsDone(ids) {
   (ids || []).forEach(id => {
     if (typeof id !== 'string') return;
@@ -1014,33 +1002,6 @@ function parseStepDoneFromText(text) {
   return out;
 }
 
-function shouldContinue(text) {
-  if (!autoAdvance) return false;
-  if (autoAdvanceCount >= AUTO_ADVANCE_MAX) return false;
-  if (!text) return false;
-  // Stop on end-of-procedure markers
-  if (/절차\s*완료|절차\s*종료|MODE\s*4\s*\(.*HOT\s*SHUTDOWN\).*진입.*완료|END\s*OF\s*PROCEDURE/i.test(text))
-    return false;
-  // Stop on error
-  if (/AI\s*응답\s*오류|오류:|error|실패/i.test(text)) return false;
-  // Stop if the AI is asking the operator a real question (not a rhetorical one)
-  // — heuristic: ends with '?' AND no "[제안 행동]" / 도구 호출 흔적
-  if (/[?？]\s*$/.test(text.trim()) && !/제안\s*행동|승인|approve/i.test(text))
-    return false;
-  return true;
-}
-
-function scheduleAutoAdvance() {
-  if (autoAdvanceTimer) clearTimeout(autoAdvanceTimer);
-  autoAdvanceTimer = setTimeout(() => {
-    autoAdvanceCount++;
-    const inp = document.getElementById('input');
-    inp.value = '확인했습니다. 다음 단계를 진행해주세요.';
-    addMsg('status', `↻ 자동 진행 (${autoAdvanceCount}/${AUTO_ADVANCE_MAX})`);
-    send();
-  }, 2500);
-}
-
 function handleEvent(d) {
   if (d.type === 'status') {
     addMsg('status', escapeHtml(d.text));
@@ -1049,13 +1010,11 @@ function handleEvent(d) {
   } else if (d.type === 'step_done') {
     // Structured signal from the LLM via the graph
     markStepsDone(d.step_ids);
-  } else if (d.type === 'message') {
-    addMsg('ai', highlightCite(escapeHtml(d.text)));
-    markStepsDone(parseStepDoneFromText(d.text));
   } else if (d.type === 'answer') {
+    // Single consolidated message per turn (intermediate `message` events
+    // are no longer emitted by the server — see web_server._stream_graph).
     addMsg('ai', highlightCite(escapeHtml(d.text)));
     markStepsDone(parseStepDoneFromText(d.text));
-    if (shouldContinue(d.text)) scheduleAutoAdvance();
   } else if (d.type === 'approval_request') {
     showApprovalModal(d);
   } else if (d.type === 'error') {
@@ -1123,11 +1082,6 @@ async function approve(yes) {
   if (!pendingApproval) return;
   const reason = yes ? 'operator approved' : (prompt('거부 사유:', 'reject') || 'rejected');
   hideApprovalModal();
-  // Pause auto-advance when operator rejects so the agent doesn't immediately
-  // loop back into the same proposal.
-  if (!yes && autoAdvanceTimer) {
-    clearTimeout(autoAdvanceTimer); autoAdvanceTimer = null;
-  }
   addMsg('operator', yes ? '✓ 승인' : '✗ 거부 — ' + escapeHtml(reason));
   try {
     const res = await fetch('/chat/approve', {

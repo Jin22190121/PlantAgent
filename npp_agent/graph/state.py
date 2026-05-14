@@ -16,7 +16,10 @@ class AgentState(TypedDict, total=False):
     # I/O
     operator_input: str
     final_answer: str
-    final_messages: list[str]   # accumulated user-visible messages this turn
+    # Accumulated user-visible messages this turn — `add` reducer so multiple
+    # nodes can append (plan_action, verify_outcome, respond …) and the
+    # respond node consolidates them into a single `final_answer`.
+    final_messages: Annotated[list[str], add]
 
     # Plant context
     plant_state: dict

@@ -211,9 +211,10 @@ async def _stream_graph(graph, inputs, config) -> AsyncIterator[str]:
                     cs = pa.get("completed_step_ids") if isinstance(pa, dict) else None
                     if cs:
                         yield _evt("step_done", step_ids=list(cs))
-                if isinstance(update, dict) and update.get("final_messages"):
-                    for m in update["final_messages"]:
-                        yield _evt("message", text=m)
+                # Only emit the consolidated final_answer (from respond node).
+                # Intermediate final_messages from earlier nodes are reduced
+                # into final_answer via the `add` reducer in AgentState, so
+                # emitting them here would cause UI duplication.
                 if isinstance(update, dict) and update.get("final_answer"):
                     yield _evt("answer", text=update["final_answer"])
         if not interrupted:
