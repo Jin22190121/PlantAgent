@@ -3,6 +3,27 @@ from typing import Any, Annotated, Literal, TypedDict
 from operator import add
 
 
+def _append_unique(left, right):
+    """Reducer: append items from `right` to `left`, dropping duplicates.
+    Order-preserving. Used so a step ID never appears twice in
+    `completed_step_ids`."""
+    seen = set(left or [])
+    out = list(left or [])
+    for item in (right or []):
+        if not isinstance(item, str):
+            continue
+        if item in seen:
+            continue
+        seen.add(item)
+        out.append(item)
+    return out
+
+
+def _last_wins(_left, right):
+    """Reducer: simply replace with the latest non-empty value."""
+    return right if right else _left
+
+
 class ProposedAction(TypedDict, total=False):
     tool: str
     args: dict[str, Any]
@@ -27,7 +48,11 @@ class AgentState(TypedDict, total=False):
 
     # Procedure context
     retrieved_procedures: list[dict]
-    current_step_id: str
+    # Step progress — persisted across turns via the LangGraph checkpointer.
+    # `completed_step_ids` accumulates uniquely; `current_step_id` is whatever
+    # the planner last advised (the step the operator is currently working on).
+    completed_step_ids: Annotated[list[str], _append_unique]
+    current_step_id: Annotated[str, _last_wins]
 
     # Action loop
     proposed_action: ProposedAction

@@ -207,10 +207,19 @@ async def _stream_graph(graph, inputs, config) -> AsyncIterator[str]:
                 # Surface explicitly-acknowledged completed steps as a structured
                 # SSE event so the UI marks the tracker without text heuristics.
                 if isinstance(update, dict):
+                    # Top-level reducer-accumulated completed step IDs
+                    top_cs = update.get("completed_step_ids")
+                    if top_cs:
+                        yield _evt("step_done", step_ids=list(top_cs))
+                    # Legacy: nested in proposed_action (still emitted by plan_action)
                     pa = update.get("proposed_action") or {}
                     cs = pa.get("completed_step_ids") if isinstance(pa, dict) else None
                     if cs:
                         yield _evt("step_done", step_ids=list(cs))
+                    # Active step indicator — UI highlights the row in the tracker
+                    cur = update.get("current_step_id")
+                    if cur:
+                        yield _evt("step_active", step_id=cur)
                 # Only emit the consolidated final_answer (from respond node).
                 # Intermediate final_messages from earlier nodes are reduced
                 # into final_answer via the `add` reducer in AgentState, so

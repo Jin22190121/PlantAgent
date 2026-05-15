@@ -45,13 +45,17 @@ PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 NPP AI Agent입�
   • EOP (Ginna E-0) — 원자로 트립 / 안전주입
   • AOP (Point Beach AOP-10) — 주제어실 접근 불능
 
-당신의 역할: 활성 시나리오와 현재 플랜트 상태를 보고, **단계별 절차를 운전원에게
-순차적으로 안내**합니다. 운전원은 한 번 "시작"만 요청하면, 당신은 매 응답마다:
-  1) 직전 step이 완료되었음을 명시 ("✓ <step_id> 완료")
-  2) 다음 step의 절차 본문을 인용하여 설명
-  3) 운전원이 확인할 사항(checklist)을 명시
-  4) E-tier 행동이면 도구 호출(`kind=execute`)로 HITL 승인 모달을 띄움
-  5) 운전원이 답해야 할 질문으로 끝맺음
+당신의 역할: 운전원이 다음 단계를 요청할 때마다 **다음 한 개의 step만** 안내합니다.
+
+⚠ 절대 규칙:
+1. 입력 컨텍스트의 `step_progress.completed_step_ids` 목록은 이미 끝난 step들입니다.
+   이 목록에 있는 step은 절대 다시 cited_step_id로 쓰지 마세요.
+2. 입력 컨텍스트의 `next_step_to_advise.id`가 제공되면 그것을 cited_step_id로 사용하세요.
+3. `previous_was_just_acknowledged=true`이면 `completed_step_ids`에 previous_step_id를
+   포함시켜 진행 상태를 갱신하세요.
+4. 이전에 완료된 step으로 되돌아가지 마세요. 항상 새로운 step만 안내하세요.
+5. `next_step_to_advise`가 null이면 모든 step이 완료된 것이므로 kind="respond"로
+   "절차 완료" 선언.
 
 다음 JSON 객체 하나만 출력하세요. 다른 텍스트 금지.
 
@@ -65,24 +69,23 @@ PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 NPP AI Agent입�
                  "advance_time",
   "args": {},
   "rationale": "<왜 이 행동인지>",
-  "cited_step_id": "<현재 진행 step 예: GOP-A-4 / EOP-E0-1 / AOP-10-3>",
-  "completed_step_ids": ["<직전에 완료된 step ID들>"],
+  "cited_step_id": "<반드시 next_step_to_advise.id 와 동일>",
+  "completed_step_ids": ["<직전 완료된 step IDs — previous_step_id 포함 필수>"],
   "expected_outcome": "<예상 상태 변화>",
   "cautions": ["..."],
   "message_to_operator": "<운전원 안내. 다음 패턴 권장:\\n
-    [직전 step 완료 확인] ✓ <prev_id> 완료.\\n
-    [현재 step] <cur_id> — <본문 요약>\\n
+    [직전 단계 완료] ✓ <prev_id> 완료.\\n
+    [현재 단계] <cur_id> — <본문 요약>\\n
     [확인 사항] • ... • ...\\n
     [제안 행동] <tool>(<args>) — 승인이 필요합니다.\\n
     [질문] '이 행동을 실행해도 될까요?'>"
 }
 
-규칙:
-- 반드시 활성 시나리오의 doc_type에 해당하는 절차 step을 인용하세요.
-- 모든 step을 끝낼 때까지 자율적으로 다음 step을 안내하세요 (단계마다 끊지 않음).
-- 단계가 완료되었으면 `completed_step_ids`에 정확한 ID를 넣고, message_to_operator
-  에도 "✓ <step_id> 완료" 문구를 포함하세요 (UI가 자동 체크 처리).
-- 마지막 step까지 끝나면 kind="respond"로 절차 완료 선언.
+행동 결정 규칙:
+- next_step의 expected_action이 'operator_check' / 'checklist'이면 kind="advise"
+  (도구 호출 X, 운전원이 직접 확인 후 '확인했습니다'라고 말하면 완료 처리됨).
+- next_step의 expected_action이 'set_pzr_heater', 'start_rcp' 등 도구 이름이면
+  kind="execute"로 해당 도구를 호출 (HITL 승인 모달이 뜸).
 - 안전: 가열률 ≤ 100°F/hr, RCP 기동 전 P_RCS ≥ 320 psig, SI 자동 setpoint(PZR<1750psig).
 - 모르거나 확실치 않으면 kind="respond"로 운전원에게 질문.
 """
@@ -143,18 +146,56 @@ def make_retrieve_procedure(router):
 
 
 # ── 3. plan_action ────────────────────────────────
+# Operator confirmation phrases — detects intent to advance one step.
+# Matches "확인했습니다", "확인 완료", "다음", "다음 단계 진행", "예", "네",
+# bare "next", "done", "continue", "ok", "proceed", etc.
+_CONFIRM_RE = re.compile(
+    r"(확인.*완료|확인했|확인\s*완료|다음(?:\s*단계|\s*절차|으?로)?|진행해|"
+    r"\bnext\b|\bdone\b|\bcontinue\b|\bproceed\b|\bok\b|^\s*예\b|^\s*네\b)",
+    re.IGNORECASE,
+)
+
+
+def _next_unmarked_step(doc_type: str, completed: list[str]) -> dict | None:
+    """Return the lowest-numbered step in `doc_type` not yet in `completed`."""
+    try:
+        from npp_agent.ingest.procedures_data import ALL_PROCEDURES
+    except Exception:
+        return None
+    done = set(completed or [])
+    candidates = [s for s in ALL_PROCEDURES if s.get("doc_type") == doc_type]
+    candidates.sort(key=lambda s: s.get("step_no", 0))
+    for s in candidates:
+        if s.get("id") not in done:
+            return s
+    return None
+
+
 def make_plan_action(llm):
     def node(state: AgentState) -> dict:
         plant = state.get("plant_state", {})
         alarms = state.get("alarms", [])
         procs = state.get("retrieved_procedures", [])
         op_in = state.get("operator_input", "")
+        completed = list(state.get("completed_step_ids") or [])
+        current_id = state.get("current_step_id") or ""
+
+        # ── 1) Operator confirmed previous step → mark it done ────────
+        auto_completed: list[str] = []
+        if current_id and current_id not in completed \
+                and _CONFIRM_RE.search(op_in or ""):
+            auto_completed.append(current_id)
+            completed.append(current_id)
+
+        # ── 2) Pick the next step deterministically ───────────────────
+        active_doc = plant.get("active_doc_type", "GOP")
+        next_step = _next_unmarked_step(active_doc, completed)
 
         # Build context message
         context = {
             "scenario": {
                 "scenario_id":      plant.get("scenario_id"),
-                "active_doc_type":  plant.get("active_doc_type"),
+                "active_doc_type":  active_doc,
                 "mode":             plant.get("mode"),
                 "mode_name":        plant.get("mode_name"),
             },
@@ -182,13 +223,31 @@ def make_plan_action(llm):
                 "steam_bubble_formed":    plant.get("steam_bubble_formed"),
             },
             "alarms": [a.get("text") for a in alarms[-5:]],
+            "step_progress": {
+                "completed_step_ids": completed,
+                "completed_count":    len(completed),
+                "previous_step_id":   current_id,
+                "previous_was_just_acknowledged": bool(auto_completed),
+            },
+            "next_step_to_advise": (
+                {
+                    "id":               next_step.get("id"),
+                    "step_no":          next_step.get("step_no"),
+                    "title":            next_step.get("title"),
+                    "text":             (next_step.get("text") or "")[:400],
+                    "expected_action":  next_step.get("expected_action"),
+                    "parameters":       next_step.get("parameters", []),
+                    "setpoints":        next_step.get("setpoints", {}),
+                    "cautions":         next_step.get("cautions", []),
+                } if next_step else None
+            ),
             "candidate_steps": [
                 {"id": p["id"],
                  "doc_type": p.get("doc_type"),
                  "title": p.get("title"),
                  "expected_action": p.get("expected_action"),
                  "text": (p.get("text") or "")[:280]}
-                for p in procs[:8]
+                for p in procs[:6]
             ],
             "history_titles": [h.get("title") for h in state.get("procedure_history", [])][-5:],
         }
@@ -196,7 +255,10 @@ def make_plan_action(llm):
         msg = (
             f"[운전원 발화]\n{op_in}\n\n"
             f"[현재 컨텍스트 (JSON)]\n{json.dumps(context, ensure_ascii=False, indent=2)}\n\n"
-            "위 컨텍스트만으로 다음 행동을 정하고, 지정된 JSON 객체 하나만 출력하세요."
+            "위 컨텍스트만으로 다음 행동을 정하고, 지정된 JSON 객체 하나만 출력하세요.\n"
+            "★ 중요: `step_progress.completed_step_ids`에 있는 step은 절대 다시 안내하지 마세요.\n"
+            "★ `next_step_to_advise`가 제공되면 그 step을 cited_step_id로 사용하세요.\n"
+            "★ `previous_was_just_acknowledged=true`이면 `completed_step_ids`에 previous_step_id를 추가하세요."
         )
 
         try:
@@ -232,18 +294,29 @@ def make_plan_action(llm):
         parsed = _safe_json_extract(text) or {}
         kind = parsed.get("kind", "respond")
         message = parsed.get("message_to_operator") or text
-        completed_ids = parsed.get("completed_step_ids") or []
+        cited = parsed.get("cited_step_id") or (
+            next_step.get("id") if next_step else "")
+        # Combine: auto-detected from operator confirmation + explicit from LLM
+        llm_completed = parsed.get("completed_step_ids") or []
+        new_completed = list({*auto_completed, *llm_completed})
+
+        # Common state update — persisted by the SqliteSaver checkpointer
+        common = {
+            "current_step_id": cited,
+            "completed_step_ids": new_completed,
+        }
 
         if kind == "execute" and parsed.get("tool"):
             return {
+                **common,
                 "proposed_action": {
                     "tool": parsed["tool"],
                     "args": parsed.get("args", {}) or {},
                     "rationale": parsed.get("rationale", ""),
-                    "cited_step_id": parsed.get("cited_step_id", ""),
+                    "cited_step_id": cited,
                     "expected_outcome": parsed.get("expected_outcome", ""),
                     "cautions": parsed.get("cautions", []) or [],
-                    "completed_step_ids": completed_ids,
+                    "completed_step_ids": new_completed,
                 },
                 "approval_status": "pending",
                 "final_messages": [message],
@@ -252,7 +325,8 @@ def make_plan_action(llm):
 
         # advise or respond — no execution this turn
         return {
-            "proposed_action": {"completed_step_ids": completed_ids},
+            **common,
+            "proposed_action": {"completed_step_ids": new_completed},
             "approval_status": "n/a",
             "final_messages": [message],
             "done": True,
@@ -324,19 +398,26 @@ def make_verify_outcome(router):
         if state.get("approval_status") != "approved" and state.get("approval_status") != "modified":
             return {}
         result = state.get("last_tool_result", {})
-        # Pull fresh state for verification
         plant = router.call_internal("get_plant_state", {})
         ok = isinstance(result, dict) and result.get("ok") is True
         msgs = []
+        pa = state.get("proposed_action") or {}
+        tool = pa.get("tool", "")
+        cited = pa.get("cited_step_id", "")
+        out: dict = {"plant_state": plant}
         if ok:
-            tool = state["proposed_action"]["tool"]
             msgs.append(f"✓ {tool} 실행 완료. 현재 MODE {plant.get('mode')}, "
                         f"T_RCS {plant.get('T_RCS_avg_F', 0):.1f}°F, "
                         f"P_RCS {plant.get('P_RCS_psig', 0):.0f} psig.")
+            # Tool succeeded → the cited step is now done. The Annotated
+            # reducer on completed_step_ids ensures no duplicates.
+            if cited:
+                out["completed_step_ids"] = [cited]
         else:
             err = result.get("error", "unknown")
             msgs.append(f"⚠ 도구 실행 실패: {err}")
-        return {"plant_state": plant, "final_messages": msgs}
+        out["final_messages"] = msgs
+        return out
     return node
 
 

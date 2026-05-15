@@ -903,7 +903,9 @@ async function changeScenario(scenarioId) {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({op:'reset_scenario', value: scenarioId})
   });
-  addMsg('status', '시나리오 변경: ' + scenarioId);
+  // Drop the LangGraph checkpoint so completed_step_ids restarts at empty
+  await fetch('/chat/' + SESSION_ID, {method:'DELETE'}).catch(()=>{});
+  addMsg('status', '시나리오 변경: ' + scenarioId + ' · 진행 상태 초기화');
 }
 
 // ─────────── SSE for plant state ───────────
@@ -1002,6 +1004,17 @@ function parseStepDoneFromText(text) {
   return out;
 }
 
+function markStepActive(stepId) {
+  if (!stepId) return;
+  document.querySelectorAll('.step').forEach(el => {
+    if (el.dataset.step === stepId) {
+      if (!el.classList.contains('done')) el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  });
+}
+
 function handleEvent(d) {
   if (d.type === 'status') {
     addMsg('status', escapeHtml(d.text));
@@ -1010,6 +1023,8 @@ function handleEvent(d) {
   } else if (d.type === 'step_done') {
     // Structured signal from the LLM via the graph
     markStepsDone(d.step_ids);
+  } else if (d.type === 'step_active') {
+    markStepActive(d.step_id);
   } else if (d.type === 'answer') {
     // Single consolidated message per turn (intermediate `message` events
     // are no longer emitted by the server — see web_server._stream_graph).
