@@ -267,6 +267,32 @@ def make_plan_action(llm):
         active_doc = plant.get("active_doc_type", "GOP")
         next_step = _next_unmarked_step(active_doc, completed)
 
+        # ── 2a) Short-circuit: all procedure steps are done ───────────
+        # Avoid asking the LLM at all — it has a tendency to confabulate
+        # a stray "다음 행동을 승인해주세요" even when there is no next step.
+        if next_step is None:
+            doc_label = {
+                "GOP": "정상운전 기동 절차서 (App19-1 §A)",
+                "EOP": "비상운전 절차서 (E-0)",
+                "AOP": "비정상운전 절차서 (AOP-10)",
+            }.get(active_doc, active_doc)
+            done_msg = (
+                f"🎯 모든 절차 완료\n\n"
+                f"활성 시나리오의 모든 단계가 완료되었습니다.\n"
+                f"  • 절차서: {doc_label}\n"
+                f"  • 완료된 step: {len(completed)}개 ({', '.join(completed[-6:])} ...)\n\n"
+                f"감사합니다. 다음 시나리오를 진행하려면 상단 드롭다운에서 "
+                f"다른 시나리오를 선택하거나 'Reset' 버튼을 누르세요."
+            )
+            return {
+                "current_step_id": "",
+                "completed_step_ids": list(auto_completed),
+                "proposed_action": {},
+                "approval_status": "n/a",
+                "final_messages": [done_msg],
+                "done": True,
+            }
+
         # Build context message
         context = {
             "scenario": {

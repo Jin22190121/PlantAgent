@@ -282,6 +282,57 @@
   ::-webkit-scrollbar-track { background: transparent; }
   ::-webkit-scrollbar-thumb { background: #2a3d5e; border-radius: 3px; }
 
+  /* Step section divider — groups chat messages by procedure step */
+  .step-section {
+    margin: 22px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: fadeIn 0.4s ease-out;
+  }
+  .step-section::before,
+  .step-section::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent, #2a3d5e 30%, #2a3d5e 70%, transparent);
+  }
+  .step-section .lbl {
+    background: #16243d;
+    border: 1px solid #4dd0e1;
+    color: #4dd0e1;
+    border-radius: 14px;
+    padding: 4px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: "SF Mono", Consolas, monospace;
+    box-shadow: 0 0 12px rgba(77, 208, 225, 0.25);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .step-section.completed .lbl {
+    border-color: #66bb6a;
+    color: #66bb6a;
+    box-shadow: 0 0 8px rgba(102, 187, 106, 0.20);
+  }
+  .step-section .title-sub {
+    background: #0c172a;
+    color: #b0bec5;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+  /* Container for messages belonging to one step (grouped, indented) */
+  .step-block {
+    border-left: 2px solid #1e2e4a;
+    margin-left: 14px;
+    padding-left: 14px;
+    margin-bottom: 6px;
+    animation: fadeIn 0.4s ease-out;
+  }
+  .step-block.active { border-left-color: #4dd0e1; }
+  .step-block.completed { border-left-color: #66bb6a; }
+
   /* HITL approval modal */
   .modal-backdrop {
     position: fixed; inset: 0;
@@ -899,6 +950,10 @@ async function changeScenario(scenarioId) {
   clearTrend();
   document.getElementById('alarms').innerHTML = '';
   document.querySelectorAll('.step').forEach(el => el.classList.remove('done', 'active'));
+  // Reset step-block grouping state so the next session starts fresh
+  _activeStepBlock = null;
+  _activeStepId = null;
+  chat.innerHTML = '';
   await fetch('/sim/control', {
     method:'POST', headers:{'Content-Type':'application/json'},
     body: JSON.stringify({op:'reset_scenario', value: scenarioId})
@@ -956,12 +1011,54 @@ function addAlarm(level, text) {
 
 // ─────────── Chat ───────────
 const chat = document.getElementById('chat');
+// Per-step grouping state — every time current_step_id changes (via the
+// step_active SSE event) we open a new <div class="step-block"> so all
+// subsequent messages cluster visually under one step header.
+let _activeStepBlock = null;   // DOM node currently receiving messages
+let _activeStepId = null;      // the step id its header shows
+
+function _stepTitleFor(stepId) {
+  // Look up a friendly title from the global DOC_INFO if present.
+  try {
+    for (const dt of Object.keys(DOC_INFO)) {
+      for (const s of DOC_INFO[dt].steps) {
+        if (s.id === stepId) return s.title;
+      }
+    }
+  } catch(_) {}
+  return '';
+}
+
+function openStepSection(stepId) {
+  if (!stepId || stepId === _activeStepId) return;
+  // mark the previous block as completed (visually green border)
+  if (_activeStepBlock) _activeStepBlock.classList.add('completed');
+  // header divider
+  const hdr = document.createElement('div');
+  hdr.className = 'step-section';
+  const title = _stepTitleFor(stepId);
+  hdr.innerHTML = `
+    <span class="lbl" onclick="showStep('${stepId}')" title="${stepId} 원문 보기">${stepId}</span>
+    ${title ? `<span class="title-sub">${escapeHtml(title)}</span>` : ''}`;
+  chat.appendChild(hdr);
+  // new block for upcoming messages
+  const blk = document.createElement('div');
+  blk.className = 'step-block active';
+  chat.appendChild(blk);
+  _activeStepBlock = blk;
+  _activeStepId = stepId;
+  chat.scrollTop = chat.scrollHeight;
+}
+
 function addMsg(role, html) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   const who = role==='operator'?'운전원':role==='ai'?'AI Agent':role==='tool'?'도구 호출':role==='error'?'오류':'시스템';
   div.innerHTML = `<div class="who">${who}</div><div class="bubble">${html}</div>`;
-  chat.appendChild(div);
+  // If we have an active step block, nest the message there so all
+  // dialog under a single step is visually grouped.
+  const target = _activeStepBlock || chat;
+  target.appendChild(div);
   chat.scrollTop = chat.scrollHeight;
   return div;
 }
@@ -1025,6 +1122,7 @@ function handleEvent(d) {
     markStepsDone(d.step_ids);
   } else if (d.type === 'step_active') {
     markStepActive(d.step_id);
+    openStepSection(d.step_id);
   } else if (d.type === 'answer') {
     // Single consolidated message per turn (intermediate `message` events
     // are no longer emitted by the server — see web_server._stream_graph).
