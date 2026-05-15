@@ -88,6 +88,26 @@ PLANNER_SYSTEM = """당신은 한국 운전원을 보조하는 NPP AI Agent입�
   kind="execute"로 해당 도구를 호출 (HITL 승인 모달이 뜸).
 - 안전: 가열률 ≤ 100°F/hr, RCP 기동 전 P_RCS ≥ 320 psig, SI 자동 setpoint(PZR<1750psig).
 - 모르거나 확실치 않으면 kind="respond"로 운전원에게 질문.
+
+도구 args 사용법 (반드시 정확하게 채울 것):
+  start_rcp           → {"pump_id": 1 | 2 | 3 | 4}   (현재 plant.RCP_running에서 false인 가장 낮은 번호 선택)
+  stop_rcp            → {"pump_id": 1 | 2 | 3 | 4}
+  set_pzr_heater      → {"on": true | false}
+  set_pzr_spray       → {"open": true | false}
+  set_rhr_pump        → {"on": true | false}
+  set_sg_level_target → {"pct": <0-100>}        예: 33
+  set_charging_flow   → {"gpm": <number>}
+  set_letdown_flow    → {"gpm": <number>}       (최대 120 gpm)
+  set_atm_dump        → {"psig": <number>}      예: 1005
+  open_msiv / close_msiv / manual_reactor_trip / trip_turbine / actuate_si /
+  trip_mfw / start_tdafw / align_charging_to_rwst / evacuate_control_room → {}
+  start_afw           → {"mdafw": true|false, "tdafw": true|false}
+  advance_time        → {"seconds": <number>}
+
+다중 조작 step (예: GOP-A-6 RCP 1~4 순차 기동):
+- 한 번에 RCP 한 기만 제안하세요. plant.RCP_running에서 다음 OFF인 인덱스를 선택.
+- 한 펌프가 성공하면 다음 turn에서 동일 cited_step_id로 다음 펌프 제안.
+- 4기 모두 running 상태가 되면 자동으로 GOP-A-6가 completed로 마킹됩니다.
 """
 
 
@@ -169,6 +189,62 @@ def _next_unmarked_step(doc_type: str, completed: list[str]) -> dict | None:
         if s.get("id") not in done:
             return s
     return None
+
+
+def _fix_tool_args(tool: str, args: dict, plant: dict) -> dict:
+    """Auto-fill or coerce common tool args based on plant state.
+    Prevents LLM-induced runtime errors like 'pump_id must be 1..4'."""
+    args = dict(args or {})
+    rcps = plant.get("RCP_running") or [False, False, False, False]
+
+    if tool == "start_rcp":
+        pid = args.get("pump_id")
+        valid = isinstance(pid, int) and 1 <= pid <= 4 and not rcps[pid - 1]
+        if not valid:
+            # Pick the lowest-index RCP not yet running
+            for i, on in enumerate(rcps):
+                if not on:
+                    args["pump_id"] = i + 1
+                    break
+    elif tool == "stop_rcp":
+        pid = args.get("pump_id")
+        valid = isinstance(pid, int) and 1 <= pid <= 4 and rcps[pid - 1]
+        if not valid:
+            # Pick the highest-index RCP currently running
+            for i in range(3, -1, -1):
+                if rcps[i]:
+                    args["pump_id"] = i + 1
+                    break
+    elif tool == "set_pzr_heater" and "on" not in args:
+        args["on"] = True
+    elif tool == "set_pzr_spray" and "open" not in args:
+        args["open"] = True
+    elif tool == "set_rhr_pump" and "on" not in args:
+        args["on"] = False
+    elif tool == "set_sg_level_target" and "pct" not in args:
+        args["pct"] = 33
+    elif tool == "set_atm_dump" and "psig" not in args:
+        args["psig"] = 1005
+    elif tool == "set_charging_flow" and "gpm" not in args:
+        args["gpm"] = 30
+    elif tool == "set_letdown_flow" and "gpm" not in args:
+        args["gpm"] = 30
+    return args
+
+
+# Multi-action steps — completion criteria check the plant state.
+# Until the gate returns True, the cited step stays in current_step_id and
+# the next operator/AI turn re-proposes (e.g. next RCP).
+MULTI_ACTION_GATES = {
+    # All 4 RCPs running
+    "GOP-A-6": lambda plant: sum(plant.get("RCP_running") or []) == 4,
+}
+
+
+def _step_completion_gate_passed(step_id: str, plant: dict) -> bool:
+    gate = MULTI_ACTION_GATES.get(step_id)
+    return True if gate is None else bool(gate(plant))
+
 
 
 def make_plan_action(llm):
@@ -298,7 +374,20 @@ def make_plan_action(llm):
             next_step.get("id") if next_step else "")
         # Combine: auto-detected from operator confirmation + explicit from LLM
         llm_completed = parsed.get("completed_step_ids") or []
-        new_completed = list({*auto_completed, *llm_completed})
+        # If the cited step has a multi-action completion gate AND the gate
+        # is not yet satisfied, do NOT add cited to completed_step_ids even
+        # if LLM put it there.
+        new_completed = []
+        gated = set()
+        for sid in {*auto_completed, *llm_completed}:
+            if sid and _step_completion_gate_passed(sid, plant):
+                new_completed.append(sid)
+            else:
+                gated.add(sid)
+        if gated:
+            # Append a hint message so operator sees why a step isn't ticked
+            message += (f"\n[안내] {', '.join(gated)} 는 모든 하위 조작이 "
+                        f"완료될 때까지 진행 상태를 유지합니다.")
 
         # Common state update — persisted by the SqliteSaver checkpointer
         common = {
@@ -307,11 +396,16 @@ def make_plan_action(llm):
         }
 
         if kind == "execute" and parsed.get("tool"):
+            tool_name = parsed["tool"]
+            # ★ Auto-fill / coerce args so LLM errors don't crash tools
+            fixed_args = _fix_tool_args(tool_name,
+                                         parsed.get("args", {}) or {},
+                                         plant)
             return {
                 **common,
                 "proposed_action": {
-                    "tool": parsed["tool"],
-                    "args": parsed.get("args", {}) or {},
+                    "tool": tool_name,
+                    "args": fixed_args,
                     "rationale": parsed.get("rationale", ""),
                     "cited_step_id": cited,
                     "expected_outcome": parsed.get("expected_outcome", ""),
@@ -409,10 +503,15 @@ def make_verify_outcome(router):
             msgs.append(f"✓ {tool} 실행 완료. 현재 MODE {plant.get('mode')}, "
                         f"T_RCS {plant.get('T_RCS_avg_F', 0):.1f}°F, "
                         f"P_RCS {plant.get('P_RCS_psig', 0):.0f} psig.")
-            # Tool succeeded → the cited step is now done. The Annotated
-            # reducer on completed_step_ids ensures no duplicates.
-            if cited:
+            # Tool succeeded — mark cited step done only if its multi-action
+            # gate is satisfied (e.g. GOP-A-6 needs all 4 RCPs running).
+            if cited and _step_completion_gate_passed(cited, plant):
                 out["completed_step_ids"] = [cited]
+            elif cited:
+                rcps = plant.get("RCP_running") or []
+                count = sum(1 for x in rcps if x)
+                if cited == "GOP-A-6":
+                    msgs.append(f"   ↪ RCP {count}/4 가동 — 나머지 펌프 기동 후 단계 완료.")
         else:
             err = result.get("error", "unknown")
             msgs.append(f"⚠ 도구 실행 실패: {err}")
