@@ -1,0 +1,57 @@
+# ─── 공정 비교 통제변수 (단일 소스) ──────────────────────
+# 두 시스템은 LLM만 다르고 아래 항목은 모두 동일하게 적용한다.
+
+paths:
+  raw_pdf_dir: "data/raw"
+  processed_dir: "data/processed"
+  vectorstore_dir: "vectorstore/chroma"
+  goldset: "data/eval/goldset.jsonl"
+  report_dir: "data/eval"
+  prompts_dir: "config/prompts"
+
+ingestion:
+  # 한국어 친화 청킹 — 문장/단락 우선 분리
+  chunk_size: 800
+  chunk_overlap: 100
+  separators: ["\n\n", "\n", "。", ". ", " "]
+
+embedding:
+  # 멀티링궐 (한국어 포함) 임베더 — 두 시스템 공통
+  model_name: "BAAI/bge-m3"
+  device: "cpu"          # GPU 가용 시 "cuda"
+  normalize: true
+
+retrieval:
+  collection_name: "fsar_sk34_ch01"
+  top_k: 5
+  distance: "cosine"
+
+generation:
+  # 두 시스템 모두 동일 적용
+  temperature: 0.2
+  max_tokens: 1024
+  seed: 42
+
+system_a:
+  name: "Gemini"
+  provider: "google"
+  model: "gemini-1.5-flash"
+  # 무료 티어 단가 (참고용, 비용 추정)
+  input_cost_per_1k_tokens: 0.0
+  output_cost_per_1k_tokens: 0.0
+
+system_b:
+  name: "EXAONE-3.5"
+  provider: "ollama"
+  model: "exaone3.5:7.8b"
+  # 로컬 추론이므로 API 비용 0
+  input_cost_per_1k_tokens: 0.0
+  output_cost_per_1k_tokens: 0.0
+
+evaluation:
+  # 검색 메트릭 평가 시 사용
+  retrieval_k: 5
+  # 답변 메트릭에 사용할 형태소 분석기: "mecab" 또는 "okt"
+  tokenizer: "okt"
+  # 키워드 적중률 임계값
+  keyword_match_mode: "substring"   # "substring" | "morph_exact"

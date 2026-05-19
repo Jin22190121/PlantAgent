@@ -1,0 +1,31 @@
+# ── PDF / 한글 처리 ───────────────────
+pymupdf>=1.24.0
+konlpy>=0.6.0
+
+# ── 임베딩 / 벡터 DB ──────────────────
+sentence-transformers>=3.0.0
+chromadb>=0.5.0
+
+# ── LangChain (공통 RAG 인프라) ───────
+langchain>=0.3.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+langchain-text-splitters>=0.3.0
+
+# ── System A: Gemini ──────────────────
+google-generativeai>=0.8.0
+langchain-google-genai>=2.0.0
+
+# ── System B: Ollama (EXAONE) ─────────
+ollama>=0.3.0
+
+# ── UI ────────────────────────────────
+streamlit>=1.36.0
+pandas>=2.0.0
+plotly>=5.20.0
+
+# ── 유틸리티 ──────────────────────────
+python-dotenv>=1.0.0
+pydantic>=2.0.0
+pyyaml>=6.0.0
+tiktoken>=0.7.0
