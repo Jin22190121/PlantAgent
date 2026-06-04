@@ -1,8 +1,15 @@
-"""PyMuPDF로 한글 PDF에서 페이지별 텍스트와 절 메타데이터를 추출."""
+"""PyMuPDF로 한글 PDF에서 페이지별 텍스트와 절 메타데이터를 추출.
+
+텍스트 레이어가 없는 스캔 PDF는 Tesseract 한국어 OCR로 자동 폴백한다.
+필요 패키지: pytesseract (pip), tesseract-ocr + tesseract-ocr-kor (apt).
+"""
 from __future__ import annotations
 
+import io
 import json
+import os
 import re
+import time
 from dataclasses import dataclass, asdict
 from pathlib import Path
 from typing import Iterator
@@ -12,6 +19,11 @@ import fitz  # PyMuPDF
 # 한글 FSAR 절 번호 패턴: "1.1", "1.2.3", "제1.1절" 등
 SECTION_RE = re.compile(r"^\s*(?:제\s*)?(\d+(?:\.\d+){0,3})\s*(?:절|항)?\s+(.+)$")
 
+# 추출 텍스트가 이 글자 수 미만이면 OCR 폴백
+_OCR_MIN_CHARS = 20
+
+_OCR_AVAILABLE: bool | None = None
+
 
 @dataclass
 class PageRecord:
@@ -20,6 +32,7 @@ class PageRecord:
     section_title: str
     text: str
     source_file: str
+    via_ocr: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -30,34 +43,88 @@ def _detect_section(line: str, prev_section: str, prev_title: str) -> tuple[str,
     if not m:
         return prev_section, prev_title
     num, title = m.group(1), m.group(2).strip()
-    # 너무 긴 줄은 절 제목이 아닐 가능성이 큼
     if len(title) > 80:
         return prev_section, prev_title
     return num, title
 
 
-def load_pdf(pdf_path: Path) -> Iterator[PageRecord]:
-    """페이지마다 한 PageRecord를 yield."""
+def _ocr_available() -> bool:
+    global _OCR_AVAILABLE
+    if _OCR_AVAILABLE is not None:
+        return _OCR_AVAILABLE
+    try:
+        import pytesseract  # noqa: F401
+        from PIL import Image  # noqa: F401
+
+        version = pytesseract.get_tesseract_version()
+        langs = pytesseract.get_languages(config="")
+        if "kor" not in langs:
+            print("[!] Tesseract 한국어 언어팩(tesseract-ocr-kor) 미설치 — OCR 비활성")
+            _OCR_AVAILABLE = False
+        else:
+            print(f"[i] Tesseract {version} 감지, 언어: {sorted(langs)} → OCR 활성")
+            _OCR_AVAILABLE = True
+    except Exception as e:
+        print(f"[!] OCR 사용 불가: {e}")
+        _OCR_AVAILABLE = False
+    return _OCR_AVAILABLE
+
+
+def _ocr_page(page) -> str:
+    """페이지를 PNG로 렌더 후 Tesseract OCR (한국어+영어)."""
+    import pytesseract
+    from PIL import Image
+
+    dpi = int(os.environ.get("OCR_DPI", "300"))
+    lang = os.environ.get("OCR_LANG", "kor+eng")
+    pix = page.get_pixmap(dpi=dpi)
+    img = Image.open(io.BytesIO(pix.tobytes("png")))
+    return pytesseract.image_to_string(img, lang=lang)
+
+
+def load_pdf(pdf_path: Path, progress_every: int = 10) -> Iterator[PageRecord]:
+    """페이지마다 한 PageRecord를 yield. 빈 텍스트는 OCR로 폴백."""
     doc = fitz.open(pdf_path)
     section, title = "1", "장 시작"
-    for i, page in enumerate(doc, start=1):
-        text = page.get_text("text") or ""
-        for line in text.splitlines():
-            section, title = _detect_section(line, section, title)
-        cleaned = _clean_text(text)
-        if cleaned.strip():
-            yield PageRecord(
-                page=i,
-                section=section,
-                section_title=title,
-                text=cleaned,
-                source_file=pdf_path.name,
-            )
-    doc.close()
+    ocr_count = 0
+    t0 = time.perf_counter()
+    try:
+        for i, page in enumerate(doc, start=1):
+            text = page.get_text("text") or ""
+            via_ocr = False
+            if len(text.strip()) < _OCR_MIN_CHARS and _ocr_available():
+                ocr_text = _ocr_page(page)
+                if ocr_text.strip():
+                    text = ocr_text
+                    via_ocr = True
+                    ocr_count += 1
+
+            for line in text.splitlines():
+                section, title = _detect_section(line, section, title)
+
+            cleaned = _clean_text(text)
+            if cleaned.strip():
+                yield PageRecord(
+                    page=i,
+                    section=section,
+                    section_title=title,
+                    text=cleaned,
+                    source_file=pdf_path.name,
+                    via_ocr=via_ocr,
+                )
+
+            if i % progress_every == 0 or i == doc.page_count:
+                elapsed = time.perf_counter() - t0
+                print(
+                    f"    진행: {i}/{doc.page_count} 페이지 "
+                    f"(OCR {ocr_count}, 경과 {elapsed:.1f}s)"
+                )
+    finally:
+        doc.close()
 
 
 def _clean_text(text: str) -> str:
-    text = text.replace(" ", " ")
+    text = text.replace(" ", " ")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

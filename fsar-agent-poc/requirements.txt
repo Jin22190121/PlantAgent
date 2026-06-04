@@ -1,6 +1,9 @@
 # ── PDF / 한글 처리 ───────────────────
 pymupdf>=1.24.0
 konlpy>=0.6.0
+# 스캔 PDF용 OCR (tesseract-ocr + tesseract-ocr-kor를 apt로 별도 설치 필요)
+pytesseract>=0.3.10
+Pillow>=10.0.0
 
 # ── 임베딩 / 벡터 DB ──────────────────
 sentence-transformers>=3.0.0

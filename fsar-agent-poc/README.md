@@ -19,6 +19,12 @@ cd fsar-agent-poc
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
+# 1-1) 스캔 PDF용 Tesseract 한국어 OCR (대상 PDF가 텍스트 레이어 없는 스캔본일 때)
+# Ubuntu / Debian / Codespaces:
+sudo apt-get update && sudo apt-get install -y tesseract-ocr tesseract-ocr-kor
+# macOS:
+# brew install tesseract tesseract-lang
+
 # 2) Ollama 및 모델 (System B)
 curl -fsSL https://ollama.com/install.sh | sh
 ollama pull exaone3.5:7.8b
