@@ -5,6 +5,7 @@ import argparse
 import csv
 import json
 import statistics as stats
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -97,6 +98,14 @@ def run(systems: list[str], output_prefix: str | None = None) -> dict:
     all_rows: dict[str, list[dict]] = {}
     for sys_key in systems:
         agent = get_agent(sys_key)
+        sys_cfg_key = "system_a" if sys_key.upper() == "A" else "system_b"
+        pacing = float(cfg.get(sys_cfg_key, {}).get("request_pacing_sec", 0) or 0)
+        if pacing > 0:
+            est_min = pacing * len(items) / 60.0
+            print(
+                f"  [{sys_key}] 요청 간 페이싱 {pacing:.0f}s 적용 "
+                f"(예상 최소 {est_min:.1f}분)"
+            )
         rows: list[dict] = []
         for i, item in enumerate(items, start=1):
             q = item["question"]
@@ -130,6 +139,9 @@ def run(systems: list[str], output_prefix: str | None = None) -> dict:
                     "retrieval_recall@k": 0.0,
                     "retrieval_precision@k": 0.0,
                 })
+            # 다음 요청 전 RPM 한도 회피를 위한 페이싱 (마지막 문항 뒤는 생략)
+            if pacing > 0 and i < len(items):
+                time.sleep(pacing)
         all_rows[sys_key] = rows
 
     timestamp = output_prefix or datetime.now().strftime("%Y%m%d_%H%M%S")

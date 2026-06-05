@@ -1,12 +1,19 @@
-"""System A: Google Gemini (gemini-1.5-flash, 무료 티어)."""
+"""System A: Google Gemini (gemini-2.5-flash 등, 무료 티어).
+
+무료 티어 RPM 한도(5/min)에 걸리는 429를 자동 재시도(retry_delay 파싱)한다.
+"""
 from __future__ import annotations
 
+import re
+import time
 from typing import Any
 
 import google.generativeai as genai
 
 from src.agents.base_agent import FSARAgent
 from src.config import google_api_key
+
+_RETRY_DELAY_RE = re.compile(r"retry_delay\s*\{[^}]*seconds:\s*(\d+)", re.S)
 
 
 class GeminiAgent(FSARAgent):
@@ -22,26 +29,47 @@ class GeminiAgent(FSARAgent):
                 "max_output_tokens": self.gen_cfg["max_tokens"],
             },
         )
+        self._max_retries = int(self.sys_cfg.get("max_retries", 5))
 
     def _generate(self, prompt: str) -> tuple[str, int, int, dict[str, Any]]:
-        resp = self._model.generate_content(prompt)
-        text = (resp.text or "").strip() if hasattr(resp, "text") else ""
-        if not text:
+        last_err: Exception | None = None
+        for attempt in range(1, self._max_retries + 1):
             try:
-                text = resp.candidates[0].content.parts[0].text.strip()
-            except Exception:
-                text = ""
+                resp = self._model.generate_content(prompt)
+                text = (resp.text or "").strip() if hasattr(resp, "text") else ""
+                if not text:
+                    try:
+                        text = resp.candidates[0].content.parts[0].text.strip()
+                    except Exception:
+                        text = ""
 
-        usage = getattr(resp, "usage_metadata", None)
-        if usage is not None:
-            p_tok = int(getattr(usage, "prompt_token_count", 0) or 0)
-            c_tok = int(getattr(usage, "candidates_token_count", 0) or 0)
-        else:
-            p_tok, c_tok = self._estimate_tokens(prompt, text)
+                usage = getattr(resp, "usage_metadata", None)
+                if usage is not None:
+                    p_tok = int(getattr(usage, "prompt_token_count", 0) or 0)
+                    c_tok = int(getattr(usage, "candidates_token_count", 0) or 0)
+                else:
+                    p_tok, c_tok = self._estimate_tokens(prompt, text)
 
-        return text, p_tok, c_tok, {"model": self.sys_cfg["model"]}
+                return text, p_tok, c_tok, {"model": self.sys_cfg["model"]}
+            except Exception as e:
+                last_err = e
+                msg = str(e)
+                if "429" in msg or "quota" in msg.lower() or "rate" in msg.lower():
+                    wait = self._parse_retry_delay(msg) or min(60, 2 ** attempt * 5)
+                    wait += 1  # 안전 마진
+                    print(
+                        f"  [429] attempt {attempt}/{self._max_retries} — {wait}s 대기 후 재시도"
+                    )
+                    time.sleep(wait)
+                    continue
+                raise
+        raise last_err if last_err else RuntimeError("Gemini 호출 실패 — 알 수 없는 원인")
+
+    @staticmethod
+    def _parse_retry_delay(msg: str) -> int | None:
+        m = _RETRY_DELAY_RE.search(msg)
+        return int(m.group(1)) if m else None
 
     @staticmethod
     def _estimate_tokens(prompt: str, completion: str) -> tuple[int, int]:
-        # 4 chars ≈ 1 token (fallback)
         return max(1, len(prompt) // 4), max(1, len(completion) // 4)

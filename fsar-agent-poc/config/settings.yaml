@@ -37,6 +37,12 @@ system_a:
   provider: "google"
   # gemini-1.5-flash는 2025년 9월 단종됨. 현재 무료 티어 권장: gemini-2.5-flash
   model: "gemini-2.5-flash"
+  # 무료 티어 분당 요청 한도 (RPM). gemini-2.5-flash 무료=5
+  free_tier_rpm: 5
+  # 요청 간 강제 대기 시간(초). RPM 5 → 60/5=12s 권장 (안전 마진 1s 더해 13)
+  request_pacing_sec: 13
+  # 429 발생 시 재시도 횟수
+  max_retries: 5
   # 무료 티어 단가 (참고용, 비용 추정)
   input_cost_per_1k_tokens: 0.0
   output_cost_per_1k_tokens: 0.0
@@ -45,6 +51,9 @@ system_b:
   name: "EXAONE-3.5"
   provider: "ollama"
   model: "exaone3.5:7.8b"
+  # 로컬 추론은 페이싱 불필요
+  request_pacing_sec: 0
+  max_retries: 2
   # 로컬 추론이므로 API 비용 0
   input_cost_per_1k_tokens: 0.0
   output_cost_per_1k_tokens: 0.0
