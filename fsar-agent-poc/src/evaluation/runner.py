@@ -291,13 +291,108 @@ def _write_markdown(result: dict, path: Path) -> None:
     for c in sorted(cats):
         a_cat = result["per_category"].get("A", {}).get(c, {})
         b_cat = result["per_category"].get("B", {}).get(c, {})
-        lines.append(
-            f"| {c} | {a_cat.get('token_f1_mean', 0):.4f} | {b_cat.get('token_f1_mean', 0):.4f} |"
-        )
+        a_v = a_cat.get("token_f1_mean", None)
+        b_v = b_cat.get("token_f1_mean", None)
+        a_s = f"{a_v:.4f}" if a_v is not None else "—"
+        b_s = f"{b_v:.4f}" if b_v is not None else "—"
+        lines.append(f"| {c} | {a_s} | {b_s} |")
     lines.append("")
+
+    # 양쪽 시스템 모두 결과가 있으면 문항별 비교 + 자동 코멘트 추가
+    rows = result.get("rows", {})
+    has_both = bool(rows.get("A")) and bool(rows.get("B"))
+    if has_both:
+        lines.extend(_render_side_by_side(rows["A"], rows["B"]))
+        lines.extend(_render_winner_analysis(rows["A"], rows["B"]))
 
     with open(path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
+
+
+def _render_side_by_side(a_rows: list[dict], b_rows: list[dict]) -> list[str]:
+    """문항 ID 기준으로 A·B 응답을 나란히 표시."""
+    out = ["## 문항별 시스템 비교 (System A vs System B)\n"]
+    a_by_qid = {r["qid"]: r for r in a_rows}
+    b_by_qid = {r["qid"]: r for r in b_rows}
+    qids = sorted(set(a_by_qid) | set(b_by_qid))
+
+    out.append("| QID | Cat | Token F1 (A/B) | Latency ms (A/B) | Tokens out (A/B) |")
+    out.append("|---|---|---|---|---|")
+    for qid in qids:
+        ra = a_by_qid.get(qid, {})
+        rb = b_by_qid.get(qid, {})
+        cat = ra.get("category") or rb.get("category", "")
+        out.append(
+            f"| {qid} | {cat} | "
+            f"{ra.get('token_f1', 0):.3f} / {rb.get('token_f1', 0):.3f} | "
+            f"{ra.get('latency_ms', 0):.0f} / {rb.get('latency_ms', 0):.0f} | "
+            f"{ra.get('completion_tokens', 0)} / {rb.get('completion_tokens', 0)} |"
+        )
+    out.append("")
+
+    out.append("### 문항별 답변 전문")
+    for qid in qids:
+        ra = a_by_qid.get(qid, {})
+        rb = b_by_qid.get(qid, {})
+        q = ra.get("question") or rb.get("question", "")
+        gold = ra.get("gold_answer") or rb.get("gold_answer", "")
+        out.append(f"\n#### {qid} — {q}\n")
+        out.append(f"**정답:** {gold}\n")
+        out.append(f"**System A (Gemini):** {ra.get('answer', '—')}\n")
+        out.append(f"**System B (EXAONE):** {rb.get('answer', '—')}\n")
+    out.append("")
+    return out
+
+
+def _render_winner_analysis(a_rows: list[dict], b_rows: list[dict]) -> list[str]:
+    """Token F1·지연·키워드 적중률 기준 자동 코멘트."""
+    out = ["## 자동 비교 분석\n"]
+    a_by_qid = {r["qid"]: r for r in a_rows}
+    b_by_qid = {r["qid"]: r for r in b_rows}
+    common = sorted(set(a_by_qid) & set(b_by_qid))
+    if not common:
+        out.append("_공통 평가 문항이 없습니다._\n")
+        return out
+
+    a_wins = b_wins = ties = 0
+    for qid in common:
+        af = a_by_qid[qid]["token_f1"]
+        bf = b_by_qid[qid]["token_f1"]
+        if abs(af - bf) < 1e-9:
+            ties += 1
+        elif af > bf:
+            a_wins += 1
+        else:
+            b_wins += 1
+
+    n = len(common)
+    out.append(f"- 공통 평가 문항: **{n}개**")
+    out.append(f"- Token F1 승부: **A {a_wins}승 / B {b_wins}승 / 무 {ties}**")
+
+    def _avg(rows, key):
+        vals = [r.get(key, 0) for r in rows]
+        return sum(vals) / len(vals) if vals else 0
+
+    a_lat = _avg(a_rows, "latency_ms")
+    b_lat = _avg(b_rows, "latency_ms")
+    a_kw = _avg(a_rows, "keyword_hit_rate")
+    b_kw = _avg(b_rows, "keyword_hit_rate")
+    out.append(f"- 평균 지연: **A {a_lat:.0f}ms / B {b_lat:.0f}ms**")
+    out.append(f"- 평균 키워드 적중률: **A {a_kw:.3f} / B {b_kw:.3f}**")
+
+    verdicts = []
+    if a_wins > b_wins:
+        verdicts.append(f"답변 품질(F1)은 System A가 우세 ({a_wins} vs {b_wins})")
+    elif b_wins > a_wins:
+        verdicts.append(f"답변 품질(F1)은 System B가 우세 ({b_wins} vs {a_wins})")
+    else:
+        verdicts.append("답변 품질(F1)은 양 시스템 비등")
+    if a_lat < b_lat * 0.7:
+        verdicts.append(f"응답 속도는 A가 압도적 우세 ({a_lat:.0f} vs {b_lat:.0f} ms)")
+    elif b_lat < a_lat * 0.7:
+        verdicts.append(f"응답 속도는 B가 압도적 우세 ({b_lat:.0f} vs {a_lat:.0f} ms)")
+    out.append("\n**요약 판정**: " + "; ".join(verdicts) + ".\n")
+    return out
 
 
 def main() -> int:
