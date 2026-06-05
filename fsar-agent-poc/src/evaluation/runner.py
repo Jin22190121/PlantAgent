@@ -84,7 +84,11 @@ def per_category(rows: list[dict]) -> dict[str, dict]:
     return {c: aggregate(rs) for c, rs in cats.items()}
 
 
-def run(systems: list[str], output_prefix: str | None = None) -> dict:
+def run(
+    systems: list[str],
+    output_prefix: str | None = None,
+    limit: int | None = None,
+) -> dict:
     cfg = load_settings()
     goldset_path = resolve_path(cfg["paths"]["goldset"])
     report_dir = resolve_path(cfg["paths"]["report_dir"])
@@ -93,9 +97,15 @@ def run(systems: list[str], output_prefix: str | None = None) -> dict:
     items = load_goldset(goldset_path)
     if not items:
         raise RuntimeError(f"골드셋이 비어있습니다: {goldset_path}")
+    if limit is not None and limit > 0:
+        items = items[:limit]
+        print(f"[i] --limit {limit} 적용 → 처음 {len(items)}문항만 평가")
     print(f"[i] 골드셋: {len(items)}문항, 평가 대상: {systems}")
 
+    timestamp = output_prefix or datetime.now().strftime("%Y%m%d_%H%M%S")
+
     all_rows: dict[str, list[dict]] = {}
+    rpd_aborted = False
     for sys_key in systems:
         agent = get_agent(sys_key)
         sys_cfg_key = "system_a" if sys_key.upper() == "A" else "system_b"
@@ -116,6 +126,9 @@ def run(systems: list[str], output_prefix: str | None = None) -> dict:
                 rows.append(row)
             except Exception as e:
                 print(f"    ! 실패: {e}")
+                # 일일 한도(RPD) 초과면 남은 문항은 모두 실패가 자명하므로 중단
+                if "RPD_EXHAUSTED" in str(e):
+                    rpd_aborted = True
                 rows.append({
                     "qid": item.get("qid"),
                     "category": item.get("category", "uncategorized"),
@@ -139,12 +152,25 @@ def run(systems: list[str], output_prefix: str | None = None) -> dict:
                     "retrieval_recall@k": 0.0,
                     "retrieval_precision@k": 0.0,
                 })
+
+            # 부분 저장: 매 문항 직후 누적 결과를 디스크에 덮어쓰기
+            all_rows[sys_key] = rows
+            _save_partial(all_rows, cfg, timestamp, report_dir)
+
+            if rpd_aborted:
+                print(
+                    f"  [{sys_key}] 일일 한도 초과로 평가 중단. "
+                    f"처리된 {len(rows)}/{len(items)} 문항까지 저장됨."
+                )
+                break
+
             # 다음 요청 전 RPM 한도 회피를 위한 페이싱 (마지막 문항 뒤는 생략)
             if pacing > 0 and i < len(items):
                 time.sleep(pacing)
-        all_rows[sys_key] = rows
 
-    timestamp = output_prefix or datetime.now().strftime("%Y%m%d_%H%M%S")
+        if rpd_aborted:
+            break
+
     result = {
         "timestamp": timestamp,
         "config": {
@@ -167,6 +193,29 @@ def run(systems: list[str], output_prefix: str | None = None) -> dict:
     _write_markdown(result, md_path)
     print(f"\n[OK] 리포트 저장:\n  JSON: {json_path}\n  CSV:  {csv_path}\n  MD:   {md_path}")
     return result
+
+
+def _save_partial(
+    all_rows: dict[str, list[dict]], cfg: dict, timestamp: str, report_dir: Path
+) -> None:
+    """문항 처리 직후 누적 결과를 디스크에 부분 저장 (중단 시 보존용)."""
+    if not any(all_rows.values()):
+        return
+    partial = {
+        "timestamp": timestamp,
+        "partial": True,
+        "config": {
+            "embedding": cfg["embedding"]["model_name"],
+            "chunk_size": cfg["ingestion"]["chunk_size"],
+            "top_k": cfg["retrieval"]["top_k"],
+            "system_a": cfg["system_a"],
+            "system_b": cfg["system_b"],
+        },
+        "summary": {s: aggregate(rows) for s, rows in all_rows.items() if rows},
+        "per_category": {s: per_category(rows) for s, rows in all_rows.items() if rows},
+        "rows": all_rows,
+    }
+    _write_json(partial, report_dir / f"report_{timestamp}.partial.json")
 
 
 def _write_json(result: dict, path: Path) -> None:
@@ -256,8 +305,14 @@ def main() -> int:
         choices=list(SYSTEMS),
         help="평가할 시스템 (기본: A B)",
     )
+    parser.add_argument(
+        "--limit",
+        type=int,
+        default=None,
+        help="골드셋에서 처음 N개 문항만 평가 (무료 티어 일일 한도 절약용)",
+    )
     args = parser.parse_args()
-    run(args.systems)
+    run(args.systems, limit=args.limit)
     return 0
 
 

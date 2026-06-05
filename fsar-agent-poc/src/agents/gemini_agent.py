@@ -54,15 +54,24 @@ class GeminiAgent(FSARAgent):
             except Exception as e:
                 last_err = e
                 msg = str(e)
-                if "429" in msg or "quota" in msg.lower() or "rate" in msg.lower():
-                    wait = self._parse_retry_delay(msg) or min(60, 2 ** attempt * 5)
-                    wait += 1  # 안전 마진
+                is_rate = "429" in msg or "quota" in msg.lower() or "rate" in msg.lower()
+                if not is_rate:
+                    raise
+
+                # 일일 한도(RPD) 초과는 재시도해도 무의미하므로 즉시 중단
+                if "PerDay" in msg or "RequestsPerDay" in msg:
                     print(
-                        f"  [429] attempt {attempt}/{self._max_retries} — {wait}s 대기 후 재시도"
+                        "  [429-RPD] 일일 한도(RPD) 초과 — 재시도 의미 없음. "
+                        "내일까지 대기하거나 settings.yaml의 model을 다른 모델로 교체하세요."
                     )
-                    time.sleep(wait)
-                    continue
-                raise
+                    raise RuntimeError("RPD_EXHAUSTED: " + msg) from e
+
+                wait = self._parse_retry_delay(msg) or min(60, 2 ** attempt * 5)
+                wait += 1  # 안전 마진
+                print(
+                    f"  [429] attempt {attempt}/{self._max_retries} — {wait}s 대기 후 재시도"
+                )
+                time.sleep(wait)
         raise last_err if last_err else RuntimeError("Gemini 호출 실패 — 알 수 없는 원인")
 
     @staticmethod
