@@ -35,7 +35,8 @@ generation:
 system_a:
   name: "Gemini"
   provider: "google"
-  model: "gemini-1.5-flash"
+  # gemini-1.5-flash는 2025년 9월 단종됨. 현재 무료 티어 권장: gemini-2.5-flash
+  model: "gemini-2.5-flash"
   # 무료 티어 단가 (참고용, 비용 추정)
   input_cost_per_1k_tokens: 0.0
   output_cost_per_1k_tokens: 0.0
