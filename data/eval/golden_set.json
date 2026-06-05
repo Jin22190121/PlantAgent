@@ -1,0 +1,138 @@
+{
+  "description": "PoC RAG golden test set — 3 docs × multiple natural-language queries → expected step IDs",
+  "metric_target": {"recall_at_3": 0.90, "top1_accuracy": 0.70},
+  "cases": [
+    {
+      "id": "g_gop_001",
+      "query": "PZR 수위 25%로 낮춰야 하는 시점은?",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-5"]
+    },
+    {
+      "id": "g_gop_002",
+      "query": "가압기 히터 기동 절차 알려주세요",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-4"]
+    },
+    {
+      "id": "g_gop_003",
+      "query": "RCP 기동 전에 RCS 압력 얼마 이상이어야 하나",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-6", "GOP-A-5"]
+    },
+    {
+      "id": "g_gop_004",
+      "query": "MODE 4 진입 조건",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-9"]
+    },
+    {
+      "id": "g_gop_005",
+      "query": "RHR 펌프 정지 시점",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-8"]
+    },
+    {
+      "id": "g_gop_006",
+      "query": "SG 수위를 wet layup에서 어느 수위까지 낮춰야 하는가",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-2"]
+    },
+    {
+      "id": "g_gop_007",
+      "query": "RCP 봉수 주입 유량 확인",
+      "doc_type": "GOP",
+      "relevant_ids": ["GOP-A-3"]
+    },
+    {
+      "id": "g_eop_001",
+      "query": "원자로가 자동 트립되지 않으면 어떻게 해야 하나",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-1"]
+    },
+    {
+      "id": "g_eop_002",
+      "query": "PZR 압력 1750 psig 미만으로 떨어졌을 때",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-4"]
+    },
+    {
+      "id": "g_eop_003",
+      "query": "안전주입 펌프 운전 확인 절차",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-5"]
+    },
+    {
+      "id": "g_eop_004",
+      "query": "주증기관 격리해야 하는 조건",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-8"]
+    },
+    {
+      "id": "g_eop_005",
+      "query": "주급수 격리 어떻게 하나",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-9"]
+    },
+    {
+      "id": "g_eop_006",
+      "query": "보조급수 펌프 기동 단계",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-10"]
+    },
+    {
+      "id": "g_eop_007",
+      "query": "AFW 총 유량 200 gpm 이상 확인",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-15"]
+    },
+    {
+      "id": "g_eop_008",
+      "query": "트립 후 Tavg 547°F 안정 유지",
+      "doc_type": "EOP",
+      "relevant_ids": ["EOP-E0-21"]
+    },
+    {
+      "id": "g_aop_001",
+      "query": "주제어실에 화재가 났을 때 양 호기 정지",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-1"]
+    },
+    {
+      "id": "g_aop_002",
+      "query": "MSIV 차단 후 대기증기방출 setpoint",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-4", "AOP-10-3"]
+    },
+    {
+      "id": "g_aop_003",
+      "query": "충전펌프 흡입을 RWST로 정렬",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-5"]
+    },
+    {
+      "id": "g_aop_004",
+      "query": "터빈 구동 보조급수 펌프 기동",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-6"]
+    },
+    {
+      "id": "g_aop_005",
+      "query": "주제어실 철수를 누구에게 통보해야 하나",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-12", "AOP-10-11"]
+    },
+    {
+      "id": "g_aop_006",
+      "query": "현장 운전원 4명을 어디로 분산 배치하나",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-13"]
+    },
+    {
+      "id": "g_aop_007",
+      "query": "주제어실 재진입 가능 시 어느 절차로 가나",
+      "doc_type": "AOP",
+      "relevant_ids": ["AOP-10-17"]
+    }
+  ]
+}

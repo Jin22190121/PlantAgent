@@ -2,619 +2,1254 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NPP AI Agent</title>
+<title>NPP AI Agent — Live PoC</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
-
   html, body {
     height: 100%;
-    height: 100dvh;
-    font-family: 'Segoe UI', sans-serif;
-    background: #0a0f1e;
-    color: #e0e0e0;
+    background: #0a1428;
+    color: #e0e8f5;
+    font-family: -apple-system, "Segoe UI", "Noto Sans KR", sans-serif;
+    font-size: 13px;
     overflow: hidden;
   }
+  body { display: flex; flex-direction: column; }
 
-  .wrapper {
-    display: flex;
-    flex-direction: column;
-    height: 100%;
-  }
-
-  /* 헤더 */
   .header {
-    background: rgba(0,0,0,0.5);
-    border-bottom: 1px solid #1e3a5f;
-    padding: 8px 16px;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    flex-shrink: 0;
-  }
-  .header-left { display: flex; align-items: center; gap: 12px; }
-  .header-icon {
-    width: 30px; height: 30px; border-radius: 50%;
-    background: radial-gradient(circle, #00ff88, #005533);
+    height: 52px;
+    background: linear-gradient(180deg, #1a2a4a, #16243d);
+    border-bottom: 1px solid #2a3d5e;
     display: flex; align-items: center;
-    justify-content: center; font-size: 16px;
+    padding: 0 20px; gap: 16px;
   }
-  .header-title { font-size: 14px; font-weight: 700; color: #00ff88; }
-  .header-sub   { font-size: 11px; color: #666; margin-top: 2px; }
-
-  /* 플랜트 상태 바 */
-  .plant-bar {
-    background: rgba(0,20,40,0.8);
-    border-bottom: 1px solid #1e3a5f;
-    padding: 6px 16px;
-    display: flex;
-    gap: 16px;
-    flex-wrap: wrap;
-    flex-shrink: 0;
+  .header h1 { font-size: 15px; font-weight: 600; letter-spacing: 0.5px; }
+  .badge {
+    background: #234060; color: #4dd0e1;
+    padding: 3px 10px; border-radius: 12px;
+    font-size: 11px; font-weight: 500;
   }
-  .plant-item { display: flex; align-items: center; gap: 4px; }
-  .plant-label { font-size: 9px; color: #666; text-transform: uppercase; }
-  .plant-value { font-size: 12px; font-family: monospace; font-weight: 700; }
-  .plant-value.normal { color: #00ff88; }
-  .plant-value.alarm  { color: #ff4444; }
+  .badge.warn { background: #4a3a10; color: #ffd54f; }
+  .header .spacer { flex: 1; }
+  .header .clock {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px; color: #b0bec5;
+  }
+  .header button {
+    background: #2e5984; color: white; border: none;
+    padding: 7px 14px; border-radius: 4px;
+    cursor: pointer; font-size: 12px; margin-left: 6px;
+  }
+  .header button:hover { background: #3b6e9e; }
+  .header button.danger { background: #6e2e2e; }
+  .header button.danger:hover { background: #8e3a3a; }
 
-  /* 메인 영역 */
   .main {
-    display: flex;
     flex: 1;
-    min-height: 0;
+    display: grid;
+    grid-template-columns: 290px 1fr 340px;
+    gap: 1px;
+    background: #2a3d5e;
     overflow: hidden;
   }
+  .panel { background: #0f1c33; overflow: hidden;
+           display: flex; flex-direction: column; }
+  .panel-title {
+    padding: 10px 16px; font-size: 11px; font-weight: 600;
+    letter-spacing: 1.5px; color: #78909c;
+    text-transform: uppercase;
+    border-bottom: 1px solid #1e2e4a;
+    background: #0c172a;
+  }
+  .panel-body { flex: 1; overflow-y: auto; padding: 14px 16px; }
 
-  /* 도구 패널 */
-  .tool-panel {
-    width: 240px;
-    border-right: 1px solid #1e3a5f;
-    background: rgba(0,10,20,0.6);
-    display: flex;
-    flex-direction: column;
-    flex-shrink: 0;
+  /* Plant state panel */
+  .state-section { margin-bottom: 16px; }
+  .state-section .label {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 6px;
   }
-  .tool-panel-title {
-    padding: 10px 14px;
-    font-size: 11px; color: #00ff8888;
-    letter-spacing: 1px;
-    border-bottom: 1px solid #1e3a5f;
-    flex-shrink: 0;
+  .mode-display {
+    display: flex; align-items: baseline; gap: 10px;
+    padding: 10px 12px; background: #16243d;
+    border-radius: 6px; border-left: 3px solid #4dd0e1;
   }
-  .tool-log {
-    flex: 1;
-    overflow-y: auto;
-    padding: 10px;
-    display: flex;
-    flex-direction: column;
-    gap: 6px;
-    min-height: 0;
+  .mode-display .mode-num {
+    font-size: 28px; font-weight: 700;
+    font-family: "SF Mono", Consolas, monospace;
+    color: #4dd0e1; transition: color 0.5s;
   }
-  .tool-item {
-    background: rgba(0,100,200,0.1);
-    border: 1px solid #1e3a5f;
-    border-radius: 6px;
-    padding: 8px 10px;
-    animation: fadeIn 0.3s ease;
+  .mode-display .mode-name {
+    font-size: 11px; color: #b0bec5;
   }
-  .tool-item.done {
-    border-color: #00ff8833;
-    background: rgba(0,255,136,0.05);
+  .param {
+    display: flex; justify-content: space-between;
+    align-items: center; padding: 6px 0;
+    border-bottom: 1px dotted #1e2e4a;
   }
-  .tool-name   { font-size: 11px; font-family: monospace; color: #66aaff; font-weight: 700; }
-  .tool-result { font-size: 10px; color: #888; margin-top: 3px; line-height: 1.4; }
-
-  /* 채팅 영역 */
-  .chat-area {
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    min-height: 0;
-    overflow: hidden;
+  .param:last-child { border-bottom: none; }
+  .param .name { color: #90a4ae; font-size: 12px; }
+  .param .value {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 13px; font-weight: 600; color: #e0e8f5;
+    transition: color 0.3s;
   }
-
-  .messages {
-    flex: 1;
-    overflow-y: auto;
-    padding: 12px 16px;
-    display: flex;
-    flex-direction: column;
-    gap: 16px;
-    min-height: 0;
+  .param .value.warn { color: #ffd54f; }
+  .pump-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 6px; margin-top: 6px;
   }
-
-  /* 메시지 버블 */
-  .msg { display: flex; gap: 10px; animation: fadeIn 0.3s ease; }
-  .msg.user { flex-direction: row-reverse; }
-
-  .msg-avatar {
-    width: 32px; height: 32px; border-radius: 50%;
-    display: flex; align-items: center;
-    justify-content: center; font-size: 14px;
-    flex-shrink: 0; margin-top: 2px;
+  .pump {
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 8px; background: #16243d;
+    border-radius: 4px; font-size: 11px;
+    cursor: pointer; user-select: none;
+    transition: background 0.2s;
   }
-  .msg.ai .msg-avatar {
-    background: radial-gradient(circle, #00ff88, #005533);
+  .pump:hover { background: #1e3050; }
+  .pump .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #455a64;
+    transition: background 0.4s, box-shadow 0.4s;
   }
-  .msg.user .msg-avatar {
-    background: radial-gradient(circle, #4488ff, #002266);
-  }
-  .msg.system .msg-avatar { background: rgba(255,255,255,0.1); }
-
-  .msg-bubble {
-    max-width: 75%;
-    padding: 12px 16px;
-    border-radius: 12px;
-    font-size: 14px;
-    line-height: 1.7;
-    white-space: pre-wrap;
-    word-break: break-word;
-  }
-  .msg.user .msg-bubble {
-    background: rgba(0,100,255,0.15);
-    border: 1px solid #0044aa33;
-    border-radius: 12px 4px 12px 12px;
-    color: #cce0ff;
-  }
-  .msg.ai .msg-bubble {
-    background: rgba(0,255,136,0.05);
-    border: 1px solid #00ff8822;
-    border-radius: 4px 12px 12px 12px;
-  }
-  .msg.system .msg-bubble {
-    background: rgba(255,255,255,0.03);
-    border: 1px solid #ffffff11;
-    border-radius: 8px;
-    color: #888; font-size: 12px;
+  .pump.on .dot {
+    background: #66bb6a;
+    box-shadow: 0 0 6px #66bb6a;
   }
 
-  /* 타이핑 인디케이터 */
-  .typing { display: flex; gap: 4px; padding: 4px 0; }
-  .typing span {
-    width: 6px; height: 6px; border-radius: 50%;
-    background: #00ff88;
-    animation: blink 1s infinite;
+  /* Chat */
+  .chat { flex: 1; overflow-y: auto; padding: 14px 20px; }
+  .composer {
+    border-top: 1px solid #1e2e4a;
+    padding: 10px 14px; display: flex; gap: 8px;
+    background: #0c172a;
   }
-  .typing span:nth-child(2) { animation-delay: 0.2s; }
-  .typing span:nth-child(3) { animation-delay: 0.4s; }
-
-  /* 상태 메시지 */
-  .status-msg {
-    font-size: 12px; color: #00ff8888;
-    padding: 4px 8px;
-    border-left: 2px solid #00ff8833;
-    margin: 4px 0;
+  .composer textarea {
+    flex: 1; background: #16243d; color: #e0e8f5;
+    border: 1px solid #2a3d5e; border-radius: 6px;
+    padding: 8px 12px; font-size: 13px; resize: none;
+    min-height: 40px; max-height: 100px;
+    font-family: inherit; outline: none;
   }
+  .composer textarea:focus { border-color: #4dd0e1; }
+  .composer button {
+    background: #2e5984; color: white; border: none;
+    padding: 0 16px; border-radius: 6px; cursor: pointer;
+    font-size: 13px; font-weight: 500;
+  }
+  .composer button:hover:not(:disabled) { background: #3b6e9e; }
+  .composer button:disabled { opacity: 0.4; cursor: not-allowed; }
 
-  /* 빠른 질문 버튼 */
-  .quick-btns {
-    padding: 6px 12px;
-    display: flex;
-    gap: 6px;
-    flex-wrap: nowrap;
+  .quick-row {
+    padding: 6px 14px; display: flex; gap: 6px;
+    background: #0c172a; border-top: 1px solid #1e2e4a;
     overflow-x: auto;
-    flex-shrink: 0;
-    border-top: 1px solid #1e3a5f;
-    scrollbar-width: none;
   }
-  .quick-btns::-webkit-scrollbar { display: none; }
-  .quick-btn {
-    padding: 5px 12px;
-    border-radius: 12px;
-    border: 1px solid #1e3a5f;
-    background: rgba(0,50,100,0.3);
-    color: #88aacc;
-    font-size: 11px;
-    cursor: pointer;
-    transition: all 0.2s;
+  .quick-row::-webkit-scrollbar { height: 0; }
+  .quick {
+    flex-shrink: 0; padding: 5px 12px;
+    background: rgba(77, 208, 225, 0.1);
+    border: 1px solid rgba(77, 208, 225, 0.3);
+    color: #4dd0e1; border-radius: 12px;
+    font-size: 11px; cursor: pointer;
     white-space: nowrap;
   }
-  .quick-btn:hover { border-color: #00ff8844; color: #00ff88; }
+  .quick:hover { background: rgba(77, 208, 225, 0.2); }
 
-  /* 입력 영역 */
-  .input-area {
-    border-top: 1px solid #1e3a5f;
-    padding: 6px 10px;
-    display: flex;
-    gap: 10px;
-    align-items: flex-end;
-    background: rgba(0,0,0,0.3);
-    flex-shrink: 0;
+  .msg {
+    margin-bottom: 12px;
+    animation: fadeIn 0.4s ease-out;
+    max-width: 85%;
   }
-
-  textarea {
-    flex: 1;
-    background: rgba(255,255,255,0.05);
-    border: 1px solid #1e3a5f;
-    border-radius: 10px;
-    color: #e0e0e0;
-    font-size: 13px;
-    padding: 8px 12px;
-    resize: none;
-    min-height: 38px;
-    max-height: 80px;
-    font-family: inherit;
-    outline: none;
-    transition: border-color 0.2s;
-  }
-  textarea:focus { border-color: #00ff8844; }
-
-  .send-btn {
-    width: 38px; height: 38px;
-    border-radius: 10px;
-    border: 1px solid #00ff8844;
-    background: rgba(0,255,136,0.1);
-    color: #00ff88;
-    font-size: 20px;
-    cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    transition: all 0.2s;
-    flex-shrink: 0;
-  }
-  .send-btn:hover   { background: rgba(0,255,136,0.2); }
-  .send-btn:disabled { opacity: 0.3; cursor: not-allowed; }
-
-  .reset-btn {
-    padding: 0 10px; height: 38px;
-    border-radius: 10px;
-    border: 1px solid #ff444422;
-    background: rgba(255,68,68,0.08);
-    color: #ff6666; font-size: 12px;
-    cursor: pointer; flex-shrink: 0;
-    transition: all 0.2s;
-  }
-  .reset-btn:hover { background: rgba(255,68,68,0.15); }
-
-  /* 애니메이션 */
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(6px); }
-    to   { opacity: 1; transform: translateY(0); }
+    to { opacity: 1; transform: translateY(0); }
   }
-  @keyframes blink {
-    0%, 100% { opacity: 1; }
-    50%       { opacity: 0.2; }
+  .msg .who {
+    font-size: 10px; color: #607d8b;
+    margin-bottom: 4px; letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .msg .bubble {
+    padding: 10px 14px; border-radius: 10px;
+    font-size: 13px; line-height: 1.55;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .msg.operator { margin-left: auto; }
+  .msg.operator .who { text-align: right; color: #ffb74d; }
+  .msg.operator .bubble {
+    background: #3e2f1a; color: #ffe0b2;
+    border-right: 3px solid #ffb74d;
+  }
+  .msg.ai .who { color: #4dd0e1; }
+  .msg.ai .bubble {
+    background: #16243d; color: #e0e8f5;
+    border-left: 3px solid #4dd0e1;
+  }
+  .msg.tool { max-width: 70%; }
+  .msg.tool .bubble {
+    background: #0f1c33; border: 1px dashed #2a3d5e;
+    color: #90a4ae;
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px; padding: 6px 10px;
+  }
+  .msg.tool .bubble .icon { color: #4dd0e1; margin-right: 6px; }
+  .msg.error .bubble {
+    background: #4a1a1a; color: #ef9a9a;
+    border-left: 3px solid #ef5350;
+  }
+  .msg.status .bubble {
+    background: transparent; color: #78909c;
+    font-size: 11px; padding: 4px 10px;
+    border-left: 2px solid #2a3d5e;
   }
 
-  ::-webkit-scrollbar { width: 4px; }
+  /* Procedure tracker */
+  .proc-header {
+    padding: 10px 14px; background: #16243d;
+    border-radius: 6px; margin-bottom: 12px;
+  }
+  .proc-header .id {
+    font-family: "SF Mono", Consolas, monospace;
+    font-size: 11px; color: #4dd0e1; margin-bottom: 4px;
+  }
+  .proc-header .title { font-size: 13px; font-weight: 600; }
+  .step {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 9px 10px; margin-bottom: 4px;
+    border-radius: 5px; border: 1px solid transparent;
+    transition: background 0.4s, border-color 0.4s;
+  }
+  .step.active {
+    background: #16243d; border-color: #4dd0e1;
+    box-shadow: 0 0 0 2px rgba(77, 208, 225, 0.15);
+  }
+  .step.done { opacity: 0.6; }
+  .step .num {
+    flex-shrink: 0; width: 22px; height: 22px;
+    border-radius: 50%; background: #1e2e4a;
+    color: #78909c; font-size: 11px; font-weight: 600;
+    display: flex; align-items: center; justify-content: center;
+    transition: all 0.4s;
+  }
+  .step.active .num { background: #4dd0e1; color: #0a1428; }
+  .step.done .num { background: #66bb6a; color: #0a1428; }
+  .step.done .num::after { content: "✓"; }
+  .step.done .num .n { display: none; }
+  .step .text { flex: 1; font-size: 12px; line-height: 1.4; color: #b0bec5; }
+  .step.active .text { color: #e0e8f5; }
+  .step .sub {
+    font-size: 10px; color: #607d8b; margin-top: 2px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+
+  /* Alarm bar */
+  .alarm-bar {
+    height: 44px; background: #0c172a;
+    border-top: 1px solid #2a3d5e;
+    display: flex; align-items: center;
+    padding: 0 20px; gap: 12px;
+  }
+  .alarm-bar .lbl {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1.5px; text-transform: uppercase;
+  }
+  .alarm-list {
+    flex: 1; display: flex; gap: 8px;
+    overflow-x: auto;
+  }
+  .alarm-list::-webkit-scrollbar { height: 0; }
+  .alarm {
+    padding: 4px 12px; border-radius: 4px;
+    font-size: 11px; font-weight: 500;
+    animation: fadeIn 0.4s ease-out;
+    white-space: nowrap; flex-shrink: 0;
+  }
+  .alarm.info { background: #234060; color: #4dd0e1; }
+  .alarm.caution { background: #4a3a10; color: #ffd54f; }
+  .alarm.success { background: #1a3a25; color: #66bb6a; }
+  .alarm.danger {
+    background: #4a1a1a; color: #ef5350;
+    animation: fadeIn 0.4s ease-out, pulse 1s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 rgba(239, 83, 80, 0.6); }
+    50% { box-shadow: 0 0 12px rgba(239, 83, 80, 0.6); }
+  }
+
+  ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-track { background: transparent; }
-  ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+  ::-webkit-scrollbar-thumb { background: #2a3d5e; border-radius: 3px; }
+
+  /* Step section divider — groups chat messages by procedure step */
+  .step-section {
+    margin: 22px 0 10px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: fadeIn 0.4s ease-out;
+  }
+  .step-section::before,
+  .step-section::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(to right, transparent, #2a3d5e 30%, #2a3d5e 70%, transparent);
+  }
+  .step-section .lbl {
+    background: #16243d;
+    border: 1px solid #4dd0e1;
+    color: #4dd0e1;
+    border-radius: 14px;
+    padding: 4px 14px;
+    font-size: 11px;
+    font-weight: 700;
+    font-family: "SF Mono", Consolas, monospace;
+    box-shadow: 0 0 12px rgba(77, 208, 225, 0.25);
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .step-section.completed .lbl {
+    border-color: #66bb6a;
+    color: #66bb6a;
+    box-shadow: 0 0 8px rgba(102, 187, 106, 0.20);
+  }
+  .step-section .title-sub {
+    background: #0c172a;
+    color: #b0bec5;
+    border-radius: 4px;
+    padding: 2px 8px;
+    font-size: 11px;
+  }
+  /* Container for messages belonging to one step (grouped, indented) */
+  .step-block {
+    border-left: 2px solid #1e2e4a;
+    margin-left: 14px;
+    padding-left: 14px;
+    margin-bottom: 6px;
+    animation: fadeIn 0.4s ease-out;
+  }
+  .step-block.active { border-left-color: #4dd0e1; }
+  .step-block.completed { border-left-color: #66bb6a; }
+
+  /* HITL approval modal */
+  .modal-backdrop {
+    position: fixed; inset: 0;
+    background: rgba(5, 10, 20, 0.85);
+    z-index: 999;
+    display: none;
+    align-items: center; justify-content: center;
+    backdrop-filter: blur(3px);
+  }
+  .modal-backdrop.show { display: flex; }
+  .modal {
+    background: #16243d;
+    border: 1px solid #4dd0e1;
+    border-radius: 10px;
+    width: 560px; max-width: 92vw;
+    box-shadow: 0 0 30px rgba(77, 208, 225, 0.3);
+    animation: fadeIn 0.3s ease-out;
+  }
+  .modal-head {
+    padding: 14px 20px;
+    border-bottom: 1px solid #2a3d5e;
+    background: linear-gradient(180deg, #1a3a5a, #16243d);
+    border-radius: 10px 10px 0 0;
+  }
+  .modal-head .title {
+    font-size: 14px; font-weight: 600; color: #ffd54f;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .modal-head .sub {
+    font-size: 11px; color: #78909c; margin-top: 4px;
+    font-family: "SF Mono", Consolas, monospace;
+  }
+  .modal-body { padding: 16px 20px; max-height: 60vh; overflow-y: auto; }
+  .modal-row { margin-bottom: 12px; }
+  .modal-row .lbl {
+    font-size: 10px; color: #607d8b;
+    letter-spacing: 1px; text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+  .modal-row .val {
+    font-size: 13px; line-height: 1.5;
+    background: #0f1c33; padding: 8px 12px;
+    border-radius: 5px; border-left: 2px solid #4dd0e1;
+    word-break: break-word;
+  }
+  .modal-row .val.tool-call {
+    font-family: "SF Mono", Consolas, monospace;
+    color: #4dd0e1;
+  }
+  .modal-row .val.cite {
+    background: #234060; color: #4dd0e1; font-weight: 500;
+    display: inline-block; padding: 4px 10px;
+  }
+  .caution-list {
+    background: #4a3a10; border-left: 3px solid #ffd54f;
+    padding: 8px 12px; border-radius: 4px;
+    color: #ffe082; font-size: 12px;
+  }
+  .caution-list ul { margin: 0; padding-left: 16px; }
+  .modal-actions {
+    padding: 14px 20px;
+    border-top: 1px solid #2a3d5e;
+    display: flex; gap: 8px; justify-content: flex-end;
+    background: #0c172a;
+    border-radius: 0 0 10px 10px;
+  }
+  .modal-actions button {
+    padding: 8px 16px; border: none; border-radius: 5px;
+    cursor: pointer; font-size: 13px; font-weight: 500;
+  }
+  .btn-approve { background: #2e7d32; color: white; }
+  .btn-approve:hover { background: #388e3c; }
+  .btn-reject { background: #6e2e2e; color: white; }
+  .btn-reject:hover { background: #8e3a3a; }
+  .btn-modify { background: #e65100; color: white; }
+  .btn-modify:hover { background: #ef6c00; }
+  .ack {
+    display: flex; align-items: center; gap: 6px;
+    margin-top: 8px; font-size: 11px; color: #ffd54f;
+  }
+  .ack input[type="checkbox"] { accent-color: #ffd54f; }
 </style>
 </head>
 <body>
-<div class="wrapper">
 
-  <!-- 헤더 -->
-  <div class="header">
-    <div class="header-left">
-      <div class="header-icon">⚛</div>
-      <div>
-        <div class="header-title">NPP AI AGENT</div>
-        <div class="header-sub">원자력발전소 교육훈련 보조 시스템</div>
+<div class="header">
+  <h1>🏭 NPP AI Agent — Live PoC</h1>
+  <select id="scenarioSel" onchange="changeScenario(this.value)"
+          style="background:#16243d;color:#e0e8f5;border:1px solid #2a3d5e;padding:5px 10px;border-radius:4px;font-size:12px">
+    <option value="scenario_gop_heatup">GOP — 콜드셧다운→핫셧다운</option>
+    <option value="scenario_eop_reactor_trip_si">EOP — 원자로 트립+SI</option>
+    <option value="scenario_aop_cr_inaccessible">AOP — 주제어실 접근 불능</option>
+  </select>
+  <span class="badge" id="docBadge">GOP</span>
+  <span class="badge" id="llmBadge">LLM 확인 중...</span>
+  <div class="spacer"></div>
+  <span class="clock">SIM · <span id="simClock">00:00:00</span></span>
+  <button onclick="ctl('pause')">⏸ Pause</button>
+  <button onclick="ctl('resume')">▶ Resume</button>
+  <button class="danger" onclick="if(confirm('시뮬레이터를 초기 상태로 리셋하시겠습니까?')) changeScenario(document.getElementById('scenarioSel').value)">↺ Reset</button>
+  <a href="/demo" target="_blank" style="margin-left:8px;color:#4dd0e1;font-size:11px;text-decoration:none;">[데모]</a>
+</div>
+
+<div class="main">
+
+  <!-- LEFT: Plant state -->
+  <div class="panel">
+    <div class="panel-title">Plant State (live)</div>
+    <div class="panel-body">
+      <div class="state-section">
+        <div class="label">Operating Mode</div>
+        <div class="mode-display">
+          <span class="mode-num" id="modeNum">5</span>
+          <span class="mode-name" id="modeName">COLD SHUTDOWN</span>
+        </div>
       </div>
-    </div>
-    <div style="font-size:11px; color:#444;">Gemini 2.5 Flash · MCP 3서버</div>
-  </div>
-
-  <!-- 플랜트 상태 바 -->
-  <div class="plant-bar">
-    <div class="plant-item">
-      <span class="plant-label">RCS 압력</span>
-      <span class="plant-value" id="pv-rcs">-- psia</span>
-    </div>
-    <div class="plant-item">
-      <span class="plant-label">원자로 출력</span>
-      <span class="plant-value" id="pv-power">-- %</span>
-    </div>
-    <div class="plant-item">
-      <span class="plant-label">SI 신호</span>
-      <span class="plant-value" id="pv-si">--</span>
-    </div>
-    <div class="plant-item">
-      <span class="plant-label">ECCS</span>
-      <span class="plant-value" id="pv-eccs">--</span>
-    </div>
-    <div class="plant-item">
-      <span class="plant-label">소외전원</span>
-      <span class="plant-value" id="pv-power2">--</span>
-    </div>
-  </div>
-
-  <!-- 메인 -->
-  <div class="main">
-
-    <!-- 도구 로그 패널 -->
-    <div class="tool-panel">
-      <div class="tool-panel-title">🔧 MCP 도구 호출 로그</div>
-      <div class="tool-log" id="toolLog">
-        <div style="color:#333; font-size:11px;
-                    text-align:center; margin-top:20px;">
-          대화를 시작하면<br>도구 호출이 표시됩니다
+      <div class="state-section">
+        <div class="label">Reactor Coolant System</div>
+        <div class="param"><span class="name">T_RCS avg</span><span class="value" id="v_TRCS">— °F</span></div>
+        <div class="param"><span class="name">P_RCS</span><span class="value" id="v_PRCS">— psig</span></div>
+        <div class="param"><span class="name">Heatup rate</span><span class="value" id="v_HR">— °F/hr</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Pressurizer</div>
+        <div class="param"><span class="name">Level</span><span class="value" id="v_PZRlvl">— %</span></div>
+        <div class="param"><span class="name">Temperature</span><span class="value" id="v_PZRtmp">— °F</span></div>
+        <div class="param"><span class="name">Steam bubble</span><span class="value" id="v_bubble">no</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Reactor Coolant Pumps</div>
+        <div class="pump-grid">
+          <div class="pump" id="rcp1" onclick="toggleRcp(1)"><span class="dot"></span>RCP-1</div>
+          <div class="pump" id="rcp2" onclick="toggleRcp(2)"><span class="dot"></span>RCP-2</div>
+          <div class="pump" id="rcp3" onclick="toggleRcp(3)"><span class="dot"></span>RCP-3</div>
+          <div class="pump" id="rcp4" onclick="toggleRcp(4)"><span class="dot"></span>RCP-4</div>
+        </div>
+      </div>
+      <div class="state-section">
+        <div class="label">Equipment (click to toggle)</div>
+        <div class="pump-grid">
+          <div class="pump" id="rhr" onclick="act('set_rhr_pump',{on:!STATE.RHR_pump_on})"><span class="dot"></span>RHR Pump</div>
+          <div class="pump" id="heater" onclick="act('set_pzr_heater',{on:!STATE.PZR_heater_on})"><span class="dot"></span>PZR Heater</div>
+          <div class="pump" id="spray" onclick="act('set_pzr_spray',{open:!STATE.PZR_spray_open})"><span class="dot"></span>PZR Spray</div>
+          <div class="pump" id="msiv" onclick="act('open_msiv',{})"><span class="dot"></span>MSIV</div>
+        </div>
+      </div>
+      <div class="state-section">
+        <div class="label">Flows</div>
+        <div class="param"><span class="name">Charging</span><span class="value" id="v_chg">— gpm</span></div>
+        <div class="param"><span class="name">Letdown</span><span class="value" id="v_let">— gpm</span></div>
+        <div class="param"><span class="name">Seal inj</span><span class="value" id="v_seal">— gpm</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Steam Generator</div>
+        <div class="param"><span class="name">SG Level (NR)</span><span class="value" id="v_SG">— %</span></div>
+      </div>
+      <div class="state-section">
+        <div class="label">Trends (last 60 min sim)</div>
+        <div style="position:relative;height:170px;width:100%;background:#0c172a;border-radius:5px;padding:6px;overflow:hidden">
+          <canvas id="trendChart"></canvas>
         </div>
       </div>
     </div>
+  </div>
 
-    <!-- 채팅 -->
-    <div class="chat-area">
-      <div class="messages" id="messages">
-        <div class="msg system">
-          <div class="msg-avatar">⚙</div>
-          <div class="msg-bubble">NPP AI Agent에 연결되었습니다.
-훈련 시나리오: LOCA (냉각재 상실 사고)
+  <!-- CENTER: Chat -->
+  <div class="panel">
+    <div class="panel-title">AI Agent — 운전 안내</div>
+    <div class="chat" id="chat"></div>
+    <div class="quick-row">
+      <button class="quick" onclick="quick('현재 플랜트 상태를 확인하고 다음 절차를 안내해주세요.')">📊 다음 절차</button>
+      <button class="quick" onclick="quick('App19-1-A-4 단계를 설명하고 실행해주세요.')">🔥 PZR 히터 기동</button>
+      <button class="quick" onclick="quick('가압기 증기방울 형성 절차를 안내해주세요.')">💨 Steam bubble</button>
+      <button class="quick" onclick="quick('RCP 1~4를 순차 기동해주세요.')">⚙ RCP 기동</button>
+      <button class="quick" onclick="quick('현재 활성 알람을 확인하고 대응절차를 알려주세요.')">🚨 알람 확인</button>
+    </div>
+    <div class="composer">
+      <textarea id="input" placeholder="단계 완료 후 직접 입력하세요 — 예: '확인했습니다. 다음 단계 진행' (Enter 전송)" rows="1"></textarea>
+      <button id="sendBtn" onclick="send()">전송</button>
+    </div>
+  </div>
 
-현재 상황을 질문하거나 아래 빠른 질문을 사용해보세요.</div>
+  <!-- RIGHT: Procedure tracker -->
+  <div class="panel">
+    <div class="panel-title">Procedure Tracker</div>
+    <div class="panel-body">
+      <div class="proc-header">
+        <div class="id" id="procDocId">—</div>
+        <div class="title" id="procDocTitle">—</div>
+      </div>
+      <div id="steps"></div>
+    </div>
+  </div>
+</div>
+
+<div class="alarm-bar">
+  <span class="lbl">Events</span>
+  <div class="alarm-list" id="alarms"></div>
+</div>
+
+<!-- Step citation modal -->
+<div class="modal-backdrop" id="stepModal">
+  <div class="modal" style="width:520px">
+    <div class="modal-head">
+      <div class="title" id="stepModalTitle">절차 step 원문</div>
+      <div class="sub" id="stepModalId">—</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-row">
+        <div class="lbl">전체 본문</div>
+        <div class="val" id="stepModalText" style="white-space:pre-wrap">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">Setpoints</div>
+        <div class="val" id="stepModalSP">—</div>
+      </div>
+      <div class="modal-row" id="stepModalCRow" style="display:none">
+        <div class="lbl">CAUTION / NOTE</div>
+        <div class="caution-list"><ul id="stepModalC"></ul></div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-approve" onclick="document.getElementById('stepModal').classList.remove('show')">닫기</button>
+    </div>
+  </div>
+</div>
+
+<!-- HITL approval modal -->
+<div class="modal-backdrop" id="approvalModal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="title">⚠ TIER-E 조작 승인 요청 (Human-in-the-Loop)</div>
+      <div class="sub" id="apvStep">App19-1-A-?</div>
+    </div>
+    <div class="modal-body">
+      <div class="modal-row">
+        <div class="lbl">인용 절차</div>
+        <div class="val cite" id="apvCite">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">제안 행동</div>
+        <div class="val tool-call" id="apvTool">tool(args)</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">근거 (AI 판단)</div>
+        <div class="val" id="apvRationale">—</div>
+      </div>
+      <div class="modal-row">
+        <div class="lbl">예상 결과</div>
+        <div class="val" id="apvExpected">—</div>
+      </div>
+      <div class="modal-row" id="apvCautionsRow" style="display:none">
+        <div class="lbl">⚠ CAUTION / NOTE</div>
+        <div class="caution-list"><ul id="apvCautions"></ul></div>
+        <div class="ack">
+          <input type="checkbox" id="apvAck">
+          <label for="apvAck">CAUTION을 확인했고 진행 여건을 충족합니다.</label>
         </div>
       </div>
-
-      <!-- 빠른 질문 버튼 -->
-      <div class="quick-btns">
-        <button class="quick-btn"
-          onclick="quickSend('현재 플랜트 상태를 확인해주세요.')">
-          📡 플랜트 상태 확인
-        </button>
-        <button class="quick-btn"
-          onclick="quickSend('현재 상황에서 즉시 취해야 할 조치를 알려주세요.')">
-          🚨 즉시 조치사항
-        </button>
-        <button class="quick-btn"
-          onclick="quickSend('ECCS 작동 여부를 어떻게 확인하나요?')">
-          🔍 ECCS 확인 방법
-        </button>
-        <button class="quick-btn"
-          onclick="quickSend('격납건물 격리 절차를 알려주세요.')">
-          🛡 격납건물 격리
-        </button>
-        <button class="quick-btn"
-          onclick="quickSend('지금 상황에서 힌트를 주세요.')">
-          💡 힌트 요청
-        </button>
-      </div>
-
-      <!-- 입력 영역 -->
-      <div class="input-area">
-        <textarea
-          id="input"
-          placeholder="질문을 입력하세요... (Enter 전송 / Shift+Enter 줄바꿈)"
-          rows="1"
-          onkeydown="handleKey(event)"
-          oninput="autoResize(this)"
-        ></textarea>
-        <button class="reset-btn" onclick="resetSession()">↺ 초기화</button>
-        <button class="send-btn" id="sendBtn" onclick="sendMessage()">↑</button>
-      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-reject" onclick="approve(false)">✗ 거부</button>
+      <button class="btn-modify" onclick="modifyAction()">✎ 인자 수정</button>
+      <button class="btn-approve" id="apvApproveBtn" onclick="approve(true)">✓ 승인 후 실행</button>
     </div>
   </div>
 </div>
 
 <script>
-const SESSION_ID = 'session-' + Date.now();
-let isLoading = false;
+// ─────────── Procedure step definitions per doc_type ──────
+const DOC_INFO = {
+  GOP: {
+    docId: "GOP — Westinghouse §19.0 App19-1 §A",
+    title: "Heatup: COLD SHUTDOWN → HOT SHUTDOWN",
+    steps: [
+      {id:"GOP-A-1", n:1, title:"운전감독 허가 확인", sub:"manual"},
+      {id:"GOP-A-2", n:2, title:"SG 수위 33±5% NR", sub:"set_sg_level_target"},
+      {id:"GOP-A-3", n:3, title:"RCP 봉수 주입 확인", sub:"seal_inj > 0"},
+      {id:"GOP-A-4", n:4, title:"PZR 히터 기동", sub:"⚠ ≤100°F/hr"},
+      {id:"GOP-A-5", n:5, title:"증기방울 형성", sub:"PZR 90→25%"},
+      {id:"GOP-A-6", n:6, title:"RCP 1~4 기동", sub:"P_RCS ≥ 320 psig"},
+      {id:"GOP-A-7", n:7, title:"가열률 모니터", sub:"≤ 100°F/hr"},
+      {id:"GOP-A-8", n:8, title:"RHR 펌프 정지", sub:"set_rhr_pump(off)"},
+      {id:"GOP-A-9", n:9, title:"T_RCS 200°F 도달", sub:"→ MODE 4"},
+    ],
+    quicks: [
+      {label:"➡ 다음 단계", text:"확인했습니다. 다음 단계를 진행해주세요."},
+      {label:"📊 다음 절차", text:"현재 플랜트 상태를 확인하고 다음 절차를 안내해주세요."},
+      {label:"🔥 PZR 히터 기동", text:"GOP-A-4 단계: PZR 히터 기동을 진행해주세요."},
+      {label:"💨 Steam bubble", text:"가압기 증기방울 형성 절차를 안내해주세요."},
+      {label:"⚙ RCP 기동", text:"RCP 1~4를 순차 기동해주세요."},
+      {label:"🚨 알람 확인", text:"현재 활성 알람을 확인하고 대응 절차를 알려주세요."},
+    ],
+  },
+  EOP: {
+    docId: "EOP — Ginna E-0",
+    title: "Reactor Trip or Safety Injection",
+    steps: [
+      {id:"EOP-E0-1",  n:1,  title:"원자로 트립 확인/수동 트립", sub:"IMMEDIATE"},
+      {id:"EOP-E0-2",  n:2,  title:"터빈 정지밸브 차단", sub:"trip_turbine"},
+      {id:"EOP-E0-3",  n:3,  title:"AC 비상모선 ≥420V", sub:"verify"},
+      {id:"EOP-E0-4",  n:4,  title:"SI 신호/수동 작동", sub:"PZR<1750 psig"},
+      {id:"EOP-E0-5",  n:5,  title:"SI/RHR 펌프 운전", sub:"verify"},
+      {id:"EOP-E0-6",  n:6,  title:"CNMT RECIRC fan", sub:"verify"},
+      {id:"EOP-E0-7",  n:7,  title:"CNMT spray 미요구", sub:"<28 psig"},
+      {id:"EOP-E0-8",  n:8,  title:"주증기관 격리 점검", sub:"close_msiv"},
+      {id:"EOP-E0-9",  n:9,  title:"MFW 격리", sub:"trip_mfw"},
+      {id:"EOP-E0-10", n:10, title:"AFW 펌프 운전", sub:"start_afw"},
+      {id:"EOP-E0-11", n:11, title:"SW 펌프 ≥2기", sub:"verify"},
+      {id:"EOP-E0-12", n:12, title:"CI/CVI 확인", sub:"verify"},
+      {id:"EOP-E0-13", n:13, title:"CCW 시스템", sub:"≥1 pump"},
+      {id:"EOP-E0-14", n:14, title:"SI/RHR 유량 확인", sub:""},
+      {id:"EOP-E0-15", n:15, title:"AFW > 200 gpm", sub:""},
+      {id:"EOP-E0-21", n:21, title:"Tavg 547°F 안정", sub:"set_atm_dump"},
+    ],
+    quicks: [
+      {label:"➡ 다음 단계", text:"확인했습니다. 다음 단계를 진행해주세요."},
+      {label:"🚨 즉시 조치", text:"E-0 IMMEDIATE ACTION 1~12 단계를 순차 안내해주세요."},
+      {label:"⚡ 원자로 트립", text:"EOP-E0-1: 원자로 수동 트립을 수행해주세요."},
+      {label:"💧 SI 작동", text:"EOP-E0-4: 안전주입 수동 작동을 진행해주세요."},
+      {label:"🔥 AFW 기동", text:"EOP-E0-10: 보조급수 펌프 기동을 진행해주세요."},
+      {label:"📊 상태 확인", text:"현재 플랜트 상태와 SI 작동 여부를 확인해주세요."},
+    ],
+  },
+  AOP: {
+    docId: "AOP — Point Beach AOP-10",
+    title: "Control Room Inaccessibility",
+    steps: [
+      {id:"AOP-10-1",  n:1,  title:"양 호기 수동 원자로 트립", sub:"manual_reactor_trip"},
+      {id:"AOP-10-2",  n:2,  title:"양 호기 터빈 트립", sub:"trip_turbine"},
+      {id:"AOP-10-3",  n:3,  title:"MSIV 차단", sub:"close_msiv"},
+      {id:"AOP-10-4",  n:4,  title:"대기증기방출 1005 psig", sub:"set_atm_dump"},
+      {id:"AOP-10-5",  n:5,  title:"충전펌프 흡입 RWST", sub:"align_charging_to_rwst"},
+      {id:"AOP-10-6",  n:6,  title:"TDAFW 기동", sub:"start_tdafw"},
+      {id:"AOP-10-7",  n:7,  title:"MDAFW 토출 PULLOUT", sub:""},
+      {id:"AOP-10-8",  n:8,  title:"MFW 정지", sub:"trip_mfw"},
+      {id:"AOP-10-9",  n:9,  title:"히터드레인 펌프 정지", sub:""},
+      {id:"AOP-10-10", n:10, title:"복수펌프 호기당 1기", sub:""},
+      {id:"AOP-10-11", n:11, title:"주제어실 철수", sub:"evacuate_control_room"},
+      {id:"AOP-10-12", n:12, title:"CAS 통보", sub:""},
+      {id:"AOP-10-13", n:13, title:"운전원 4명 분산", sub:""},
+      {id:"AOP-10-14", n:14, title:"추가 운전원 분산", sub:""},
+      {id:"AOP-10-15", n:15, title:"STA TSC 보고", sub:""},
+      {id:"AOP-10-16", n:16, title:"현장 모니터", sub:""},
+      {id:"AOP-10-17", n:17, title:"재진입 → EOP-0", sub:""},
+    ],
+    quicks: [
+      {label:"➡ 다음 단계", text:"확인했습니다. 다음 단계를 진행해주세요."},
+      {label:"⚡ 양 호기 트립", text:"AOP-10-1: 양 호기 수동 원자로 트립을 수행해주세요."},
+      {label:"🔒 MSIV 차단", text:"AOP-10-3: MSIV를 차단하고 대기증기방출을 1005 psig로 설정해주세요."},
+      {label:"💧 RWST 정렬", text:"AOP-10-5: 충전펌프 흡입을 RWST로 정렬해주세요."},
+      {label:"🚪 주제어실 철수", text:"AOP-10-11: 주제어실 철수를 선언해주세요."},
+      {label:"📊 상태 확인", text:"현재 플랜트 상태를 확인하고 다음 우선 행동을 알려주세요."},
+    ],
+  },
+};
 
-// ── 플랜트 상태 로드 ──────────────────────────
-async function loadPlantStatus() {
+let activeDoc = "GOP";
+const stepsEl = document.getElementById('steps');
+
+function renderTracker(docType) {
+  activeDoc = docType;
+  const info = DOC_INFO[docType];
+  document.getElementById('procDocId').textContent = info.docId;
+  document.getElementById('procDocTitle').textContent = info.title;
+  document.getElementById('docBadge').textContent = docType;
+  stepsEl.innerHTML = '';
+  info.steps.forEach(s => {
+    const d = document.createElement('div');
+    d.className = 'step';
+    d.dataset.step = s.id;
+    d.style.cursor = 'pointer';
+    d.title = '클릭: 원문 보기 — AI가 완료를 보고하면 자동 체크됩니다';
+    d.innerHTML = `<div class="num"><span class="n">${s.n}</span></div>
+      <div class="text">${s.title}<div class="sub">${s.sub}</div></div>`;
+    d.onclick = () => showStep(s.id);
+    stepsEl.appendChild(d);
+  });
+  // refresh quick buttons
+  const qrow = document.querySelector('.quick-row');
+  qrow.innerHTML = '';
+  info.quicks.forEach(q => {
+    const b = document.createElement('button');
+    b.className = 'quick';
+    b.textContent = q.label;
+    b.onclick = () => quick(q.text);
+    qrow.appendChild(b);
+  });
+}
+
+renderTracker("GOP");
+
+// ─────────── Live state ───────────
+const SESSION_ID = 'sess-' + Date.now();
+let STATE = {};
+const seenAlarms = new Set();
+
+// ─────────── Trend chart (Chart.js) ───────────
+const trend = { t: [], TRCS: [], PRCS: [], PZR: [] };
+let chart = null;
+function ensureChart() {
+  if (chart) return chart;
+  const ctx = document.getElementById('trendChart').getContext('2d');
+  chart = new Chart(ctx, {
+    type: 'line',
+    data: { labels: [], datasets: [
+      { label: 'T_RCS °F',  data: [], borderColor: '#ff8a65', backgroundColor: 'transparent', yAxisID: 'y',  borderWidth: 1.5, pointRadius: 0 },
+      { label: 'P_RCS psig', data: [], borderColor: '#4dd0e1', backgroundColor: 'transparent', yAxisID: 'y2', borderWidth: 1.5, pointRadius: 0 },
+      { label: 'PZR lvl %',  data: [], borderColor: '#aed581', backgroundColor: 'transparent', yAxisID: 'y3', borderWidth: 1.5, pointRadius: 0 },
+    ]},
+    options: {
+      animation: false,
+      responsive: true,
+      maintainAspectRatio: false,
+      // Stops the infinite resize loop when the parent panel's scrollbar
+      // toggles in/out as the chart grows. 250 ms is enough to settle.
+      resizeDelay: 250,
+      scales: {
+        x:  { ticks: { color: '#78909c', font: {size: 9}, maxTicksLimit: 6, autoSkip: true } },
+        y:  { position: 'left',  ticks: { color: '#ff8a65', font: {size: 9} }, grid: {color: '#1e2e4a'} },
+        y2: { position: 'right', ticks: { color: '#4dd0e1', font: {size: 9} }, grid: {drawOnChartArea: false} },
+        y3: { display: false },
+      },
+      plugins: {
+        legend: { labels: { color: '#b0bec5', font: {size: 10}, boxWidth: 10 } },
+      },
+    },
+  });
+  return chart;
+}
+// Throttle: only redraw every Nth incoming SSE event to avoid GC churn
+let _trendTick = 0;
+function pushTrend(s) {
+  _trendTick++;
+  const tMin = (s.sim_time_s / 60).toFixed(1);
+  trend.t.push(tMin);
+  trend.TRCS.push(s.T_RCS_avg_F);
+  trend.PRCS.push(s.P_RCS_psig);
+  trend.PZR.push(s.PZR_level_pct);
+  // Cap window at 60 samples (1 minute of real-time data at 1Hz)
+  while (trend.t.length > 60) {
+    trend.t.shift(); trend.TRCS.shift(); trend.PRCS.shift(); trend.PZR.shift();
+  }
+  // Redraw every 2nd sample → max ~0.5 Hz UI update (smooth, no flicker)
+  if (_trendTick % 2 !== 0) return;
+  const c = ensureChart();
+  c.data.labels = trend.t;
+  c.data.datasets[0].data = trend.TRCS;
+  c.data.datasets[1].data = trend.PRCS;
+  c.data.datasets[2].data = trend.PZR;
+  c.update('none');
+}
+function clearTrend() {
+  trend.t.length = 0; trend.TRCS.length = 0; trend.PRCS.length = 0; trend.PZR.length = 0;
+  if (chart) { chart.data.labels = []; chart.data.datasets.forEach(d => d.data = []); chart.update('none'); }
+}
+
+// ─────────── Step-citation modal ───────────
+async function showStep(stepId) {
   try {
-    const res  = await fetch('/plant/status');
-    const data = await res.json();
-    const rcs     = data.rcs     || {};
-    const safety  = data.safety  || {};
-    const elec    = data.electrical || {};
-    const reactor = data.reactor || {};
-
-    setVal('pv-rcs',    `${rcs.pressure_psia} psia`,
-      rcs.pressure_psia < 1700);
-    setVal('pv-power',  `${reactor.power_percent} %`,
-      reactor.power_percent < 10);
-    setVal('pv-si',     safety.si_signal ? 'ON ⚠' : 'OFF',
-      safety.si_signal);
-    setVal('pv-eccs',   safety.eccs_status,
-      safety.eccs_status === 'RUNNING');
-    setVal('pv-power2', elec.offsite_power ? '정상' : '상실 ⚠',
-      !elec.offsite_power);
-  } catch(e) {}
-}
-
-function setVal(id, text, isAlarm) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent = text;
-  el.className = 'plant-value ' + (isAlarm ? 'alarm' : 'normal');
-}
-
-// ── 메시지 추가 ───────────────────────────────
-function addMessage(role, text) {
-  const c   = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = `msg ${role}`;
-  const icon = role === 'user' ? '👤' : role === 'ai' ? '⚛' : '⚙';
-  div.innerHTML = `
-    <div class="msg-avatar">${icon}</div>
-    <div class="msg-bubble">${escapeHtml(text)}</div>`;
-  c.appendChild(div);
-  c.scrollTop = c.scrollHeight;
-}
-
-function addStatusMsg(text) {
-  const c   = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = 'status-msg';
-  div.id = 'cur-status';
-  div.textContent = text;
-  c.appendChild(div);
-  c.scrollTop = c.scrollHeight;
-}
-function updateStatusMsg(text) {
-  const el = document.getElementById('cur-status');
-  if (el) el.textContent = text;
-}
-function removeStatusMsg() {
-  const el = document.getElementById('cur-status');
-  if (el) el.remove();
-}
-
-function showTyping() {
-  const c   = document.getElementById('messages');
-  const div = document.createElement('div');
-  div.className = 'msg ai';
-  div.id = 'typing';
-  div.innerHTML = `
-    <div class="msg-avatar">⚛</div>
-    <div class="msg-bubble">
-      <div class="typing">
-        <span></span><span></span><span></span>
-      </div>
-    </div>`;
-  c.appendChild(div);
-  c.scrollTop = c.scrollHeight;
-}
-function removeTyping() {
-  const el = document.getElementById('typing');
-  if (el) el.remove();
-}
-
-// ── 도구 로그 ─────────────────────────────────
-function addToolLog(toolName) {
-  const log = document.getElementById('toolLog');
-  const old = log.querySelector('div[style]');
-  if (old) old.remove();
-
-  const id  = 'tl-' + toolName + '-' + Date.now();
-  const div = document.createElement('div');
-  div.className = 'tool-item';
-  div.id = id;
-  div.innerHTML = `
-    <div class="tool-name">🔧 ${toolName}</div>
-    <div class="tool-result">⏳ 실행 중...</div>`;
-  log.appendChild(div);
-  log.scrollTop = log.scrollHeight;
-  return id;
-}
-function updateToolLog(id, result) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.classList.add('done');
-  el.querySelector('.tool-result').textContent = '✅ ' + result;
-}
-
-// ── 메시지 전송 ───────────────────────────────
-async function sendMessage() {
-  const input = document.getElementById('input');
-  const text  = input.value.trim();
-  if (!text || isLoading) return;
-
-  isLoading = true;
-  input.value = '';
-  autoResize(input);
-  document.getElementById('sendBtn').disabled = true;
-
-  addMessage('user', text);
-  showTyping();
-  addStatusMsg('🤖 AI 분석 시작...');
-
-  const toolLogIds = {};
-
-  try {
-    const res = await fetch('/chat/stream', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        session_id: SESSION_ID,
-        message: text
-      })
+    const r = await fetch('/sim/action', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({tool:'get_step', args:{step_id: stepId}}),
     });
+    const j = await r.json();
+    if (j.error) { alert('step 조회 실패: ' + j.error); return; }
+    document.getElementById('stepModalTitle').textContent = j.title || stepId;
+    document.getElementById('stepModalId').textContent = `${j.id} · ${j.doc_type} · step ${j.step_no}`;
+    document.getElementById('stepModalText').textContent = j.text || '';
+    document.getElementById('stepModalSP').textContent =
+      Object.keys(j.setpoints || {}).length ? JSON.stringify(j.setpoints, null, 2) : '(없음)';
+    const cul = document.getElementById('stepModalC');
+    cul.innerHTML = '';
+    if (j.cautions && j.cautions.length) {
+      document.getElementById('stepModalCRow').style.display = '';
+      j.cautions.forEach(c => { const li = document.createElement('li'); li.textContent = c; cul.appendChild(li); });
+    } else {
+      document.getElementById('stepModalCRow').style.display = 'none';
+    }
+    document.getElementById('stepModal').classList.add('show');
+  } catch(e) { alert('error: ' + e.message); }
+}
+window.showStep = showStep;
 
-    const reader  = res.body.getReader();
-    const decoder = new TextDecoder();
-    let   buffer  = '';
+function fmtTime(s) {
+  const h = Math.floor(s/3600).toString().padStart(2,'0');
+  const m = Math.floor((s%3600)/60).toString().padStart(2,'0');
+  const sec = Math.floor(s%60).toString().padStart(2,'0');
+  return `${h}:${m}:${sec}`;
+}
 
-    while (true) {
-      const {done, value} = await reader.read();
-      if (done) break;
+function paint(s) {
+  STATE = s;
+  // Auto-switch tracker if backend scenario changed
+  const newDoc = s.active_doc_type || 'GOP';
+  if (newDoc !== activeDoc) renderTracker(newDoc);
 
-      buffer += decoder.decode(value, {stream: true});
-      const lines = buffer.split('\n\n');
-      buffer = lines.pop();
+  document.getElementById('modeNum').textContent = s.mode;
+  document.getElementById('modeName').textContent = s.mode_name || '';
+  document.getElementById('v_TRCS').textContent = s.T_RCS_avg_F.toFixed(1) + ' °F';
+  document.getElementById('v_PRCS').textContent = s.P_RCS_psig.toFixed(0) + ' psig';
+  document.getElementById('v_PZRlvl').textContent = s.PZR_level_pct.toFixed(1) + ' %';
+  document.getElementById('v_PZRtmp').textContent = s.PZR_temp_F.toFixed(1) + ' °F';
+  document.getElementById('v_bubble').textContent = s.steam_bubble_formed ? 'YES ✓' : 'no';
+  document.getElementById('v_SG').textContent = s.SG_level_NR_pct.toFixed(1) + ' %';
+  document.getElementById('v_chg').textContent = s.charging_flow_gpm.toFixed(0) + ' gpm';
+  document.getElementById('v_let').textContent = s.letdown_flow_gpm.toFixed(0) + ' gpm';
+  document.getElementById('v_seal').textContent = s.seal_inj_flow_gpm.toFixed(1) + ' gpm';
+  const hrEl = document.getElementById('v_HR');
+  hrEl.textContent = s.heatup_rate_F_per_hr.toFixed(1) + ' °F/hr';
+  hrEl.className = 'value' + (s.heatup_rate_F_per_hr > 100 ? ' warn' : '');
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const data = JSON.parse(line.slice(6));
+  for (let i = 0; i < 4; i++) {
+    document.getElementById('rcp'+(i+1)).classList.toggle('on', s.RCP_running[i]);
+  }
+  document.getElementById('rhr').classList.toggle('on', s.RHR_pump_on);
+  document.getElementById('heater').classList.toggle('on', s.PZR_heater_on);
+  document.getElementById('spray').classList.toggle('on', s.PZR_spray_open);
+  document.getElementById('msiv').classList.toggle('on', s.MSIV_open);
+  document.getElementById('simClock').textContent = fmtTime(s.sim_time_s);
+  pushTrend(s);
 
-          if (data.type === 'status') {
-            updateStatusMsg(data.text);
+  // Auto step progress per doc type.
+  // Rule: only mark a step DONE when the plant state has CHANGED from the
+  // scenario's initial condition (i.e. an operator/AI action happened).
+  // "Verification only" steps (e.g. supervisor permission, instrument checks)
+  // stay PENDING until explicitly acknowledged via chat or button press.
+  if (activeDoc === 'GOP') {
+    // Step 1 (운전감독 허가) — manual confirm, do NOT auto-mark
+    // Step 2 — operator changed SG target from 100% wet-layup
+    if (s.SG_level_target_pct !== undefined &&
+        s.SG_level_target_pct < 90 && s.SG_level_target_pct > 0) {
+      setStep('GOP-A-2', 'done');
+    }
+    // Step 3 (RCP seal inj 확인) — verification, do NOT auto-mark
+    // Step 4 (PZR 히터 기동) — flag flipped from initial False
+    if (s.PZR_heater_on) setStep('GOP-A-4', 'done');
+    // Step 5 (steam bubble 형성)
+    if (s.steam_bubble_formed) setStep('GOP-A-5', 'done');
+    // Step 6 — all 4 RCPs running (initial: all False)
+    if (s.RCP_running && s.RCP_running.filter(x=>x).length === 4)
+      setStep('GOP-A-6', 'done');
+    // Step 7 — heatup rate observed during natural heating (RHR off, RCPs on)
+    if (s.heatup_rate_F_per_hr > 30 && s.heatup_rate_F_per_hr < 100
+        && !s.RHR_pump_on && s.RCP_running && s.RCP_running.some(x=>x))
+      setStep('GOP-A-7', 'done');
+    // Step 8 — RHR pump stopped (initial: True)
+    if (!s.RHR_pump_on && s.RCP_running && s.RCP_running.some(x=>x))
+      setStep('GOP-A-8', 'done');
+    // Step 9 — RCS reaches MODE-4 boundary
+    if (s.T_RCS_avg_F >= 200) setStep('GOP-A-9', 'done');
+  } else if (activeDoc === 'EOP') {
+    // Step 1 — reactor tripped (initial: False)
+    if (s.reactor_tripped) setStep('EOP-E0-1', 'done');
+    // Step 2 — turbine tripped (initial: False at-power)
+    if (s.turbine_tripped) setStep('EOP-E0-2', 'done');
+    // Step 3 (AC bus ≥ 420V) — initial 4160V already satisfies, skip auto
+    // Step 4 — SI manually actuated (initial: False)
+    if (s.si_signal) setStep('EOP-E0-4', 'done');
+    // Step 5 — SI pumps running
+    if (s.si_pumps_running) setStep('EOP-E0-5', 'done');
+    // Steps 6, 7, 11, 13, 14 are pure verification — skip auto
+    // Step 9 — MFW tripped (initial: True at-power)
+    if (!s.mfw_pump_running) setStep('EOP-E0-9', 'done');
+    // Step 10 — AFW running (initial: False)
+    if (s.afw_mdafw_running || s.afw_tdafw_running)
+      setStep('EOP-E0-10', 'done');
+    // Step 12 — CI signal triggered (initial: False)
+    if (s.ci_signal) setStep('EOP-E0-12', 'done');
+    // Step 15 — AFW flow > 200 gpm
+    if (s.afw_flow_total_gpm > 200) setStep('EOP-E0-15', 'done');
+    // Step 21 — Tavg stable near 547°F (after stabilisation)
+    if (s.reactor_tripped && Math.abs(s.T_RCS_avg_F - 547) < 5)
+      setStep('EOP-E0-21', 'done');
+  } else if (activeDoc === 'AOP') {
+    if (s.reactor_tripped) setStep('AOP-10-1', 'done');
+    if (s.turbine_tripped) setStep('AOP-10-2', 'done');
+    if (!s.MSIV_open) setStep('AOP-10-3', 'done');
+    // AOP-10-4 — atm dump setpoint changed from 1092 to ~1005
+    if (s.atm_steam_dump_setpoint_psig !== undefined &&
+        Math.abs(s.atm_steam_dump_setpoint_psig - 1005) < 15)
+      setStep('AOP-10-4', 'done');
+    if (s.charging_suction_rwst) setStep('AOP-10-5', 'done');
+    if (s.afw_tdafw_running) setStep('AOP-10-6', 'done');
+    if (!s.mfw_pump_running) setStep('AOP-10-8', 'done');
+    if (s.control_room_evacuated) setStep('AOP-10-11', 'done');
+  }
+  // Mark first pending as active
+  const allSteps = document.querySelectorAll('.step');
+  let foundActive = false;
+  allSteps.forEach(el => {
+    if (!el.classList.contains('done') && !foundActive) {
+      el.classList.add('active'); foundActive = true;
+    } else if (!el.classList.contains('done')) {
+      el.classList.remove('active');
+    }
+  });
 
-          } else if (data.type === 'tool_start') {
-            removeTyping();
-            toolLogIds[data.tool] = addToolLog(data.tool);
-            updateStatusMsg(`🔧 ${data.tool} 실행 중...`);
+  (s.alarms || []).forEach(a => {
+    const key = a.t + ':' + a.text;
+    if (seenAlarms.has(key)) return;
+    seenAlarms.add(key);
+    addAlarm(a.level, a.text);
+  });
+}
 
-          } else if (data.type === 'tool_done') {
-            if (toolLogIds[data.tool])
-              updateToolLog(toolLogIds[data.tool], data.summary);
-            updateStatusMsg(`✅ ${data.tool} 완료`);
+function setStep(stepId, status) {
+  const el = document.querySelector(`.step[data-step="${stepId}"]`);
+  if (!el) return;
+  if (status === 'done') { el.classList.add('done'); el.classList.remove('active'); }
+}
 
-          } else if (data.type === 'answer') {
-            removeTyping();
-            removeStatusMsg();
-            addMessage('ai', data.text);
+async function changeScenario(scenarioId) {
+  seenAlarms.clear();
+  clearTrend();
+  document.getElementById('alarms').innerHTML = '';
+  document.querySelectorAll('.step').forEach(el => el.classList.remove('done', 'active'));
+  // Reset step-block grouping state so the next session starts fresh
+  _activeStepBlock = null;
+  _activeStepId = null;
+  chat.innerHTML = '';
+  await fetch('/sim/control', {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({op:'reset_scenario', value: scenarioId})
+  });
+  // Drop the LangGraph checkpoint so completed_step_ids restarts at empty
+  await fetch('/chat/' + SESSION_ID, {method:'DELETE'}).catch(()=>{});
+  addMsg('status', '시나리오 변경: ' + scenarioId + ' · 진행 상태 초기화');
+}
 
-          } else if (data.type === 'error') {
-            removeTyping();
-            removeStatusMsg();
-            addMessage('system', '⚠️ ' + data.text);
-          }
-        } catch(e) {}
+// ─────────── SSE for plant state ───────────
+function startStateStream() {
+  const es = new EventSource('/plant/stream');
+  es.onmessage = e => {
+    try { paint(JSON.parse(e.data)); } catch(_) {}
+  };
+  es.onerror = () => {
+    es.close();
+    setTimeout(startStateStream, 2000);
+  };
+}
+
+// ─────────── Operator actions ───────────
+async function act(tool, args) {
+  const r = await fetch('/sim/action', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({tool, args})
+  });
+  const j = await r.json();
+  if (j.error) addAlarm('danger', `${tool}: ${j.error}`);
+  return j;
+}
+function toggleRcp(n) {
+  if (STATE.RCP_running && STATE.RCP_running[n-1]) act('stop_rcp', {pump_id:n});
+  else act('start_rcp', {pump_id:n});
+}
+async function ctl(op, value) {
+  await fetch('/sim/control', {
+    method:'POST',
+    headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({op, value})
+  });
+}
+
+function addAlarm(level, text) {
+  const list = document.getElementById('alarms');
+  const div = document.createElement('div');
+  div.className = 'alarm ' + level;
+  div.textContent = text;
+  list.appendChild(div);
+  list.scrollLeft = list.scrollWidth;
+  setTimeout(() => { div.style.transition='opacity 0.4s'; div.style.opacity='0';
+                     setTimeout(()=>div.remove(),400); }, 12000);
+}
+
+// ─────────── Chat ───────────
+const chat = document.getElementById('chat');
+// Per-step grouping state — every time current_step_id changes (via the
+// step_active SSE event) we open a new <div class="step-block"> so all
+// subsequent messages cluster visually under one step header.
+let _activeStepBlock = null;   // DOM node currently receiving messages
+let _activeStepId = null;      // the step id its header shows
+
+function _stepTitleFor(stepId) {
+  // Look up a friendly title from the global DOC_INFO if present.
+  try {
+    for (const dt of Object.keys(DOC_INFO)) {
+      for (const s of DOC_INFO[dt].steps) {
+        if (s.id === stepId) return s.title;
       }
     }
-  } catch(e) {
-    removeTyping();
-    removeStatusMsg();
-    addMessage('system', '오류: ' + e.message);
-  }
+  } catch(_) {}
+  return '';
+}
 
-  isLoading = false;
+function openStepSection(stepId) {
+  if (!stepId || stepId === _activeStepId) return;
+  // mark the previous block as completed (visually green border)
+  if (_activeStepBlock) _activeStepBlock.classList.add('completed');
+  // header divider
+  const hdr = document.createElement('div');
+  hdr.className = 'step-section';
+  const title = _stepTitleFor(stepId);
+  hdr.innerHTML = `
+    <span class="lbl" onclick="showStep('${stepId}')" title="${stepId} 원문 보기">${stepId}</span>
+    ${title ? `<span class="title-sub">${escapeHtml(title)}</span>` : ''}`;
+  chat.appendChild(hdr);
+  // new block for upcoming messages
+  const blk = document.createElement('div');
+  blk.className = 'step-block active';
+  chat.appendChild(blk);
+  _activeStepBlock = blk;
+  _activeStepId = stepId;
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function addMsg(role, html) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + role;
+  const who = role==='operator'?'운전원':role==='ai'?'AI Agent':role==='tool'?'도구 호출':role==='error'?'오류':'시스템';
+  div.innerHTML = `<div class="who">${who}</div><div class="bubble">${html}</div>`;
+  // If we have an active step block, nest the message there so all
+  // dialog under a single step is visually grouped.
+  const target = _activeStepBlock || chat;
+  target.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+  return div;
+}
+function escapeHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+function quick(t) {
+  document.getElementById('input').value = t;
+  send();
+}
+async function readSSE(res, onEvent) {
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while (true) {
+    const {done, value} = await reader.read();
+    if (done) break;
+    buf += dec.decode(value, {stream:true});
+    const lines = buf.split('\n\n');
+    buf = lines.pop();
+    for (const ln of lines) {
+      if (!ln.startsWith('data: ')) continue;
+      try { onEvent(JSON.parse(ln.slice(6))); } catch(_) {}
+    }
+  }
+}
+function markStepsDone(ids) {
+  (ids || []).forEach(id => {
+    if (typeof id !== 'string') return;
+    setStep(id, 'done');
+  });
+}
+
+// Heuristic fallback: parse "✓ STEPID 완료" or "STEPID 완료" from answer text
+function parseStepDoneFromText(text) {
+  const re = /(?:✓\s*)?((?:GOP-A-|EOP-E0-|AOP-10-)\d+)\s*(?:완료|완수|확인됨|done|complete)/gi;
+  const out = [];
+  let m;
+  while ((m = re.exec(text)) !== null) out.push(m[1].toUpperCase());
+  return out;
+}
+
+function markStepActive(stepId) {
+  if (!stepId) return;
+  document.querySelectorAll('.step').forEach(el => {
+    if (el.dataset.step === stepId) {
+      if (!el.classList.contains('done')) el.classList.add('active');
+    } else {
+      el.classList.remove('active');
+    }
+  });
+}
+
+function handleEvent(d) {
+  if (d.type === 'status') {
+    addMsg('status', escapeHtml(d.text));
+  } else if (d.type === 'graph_node') {
+    addMsg('tool', `<span class="icon">▸</span>node:${escapeHtml(d.node)}`);
+  } else if (d.type === 'step_done') {
+    // Structured signal from the LLM via the graph
+    markStepsDone(d.step_ids);
+  } else if (d.type === 'step_active') {
+    markStepActive(d.step_id);
+    openStepSection(d.step_id);
+  } else if (d.type === 'answer') {
+    // Single consolidated message per turn (intermediate `message` events
+    // are no longer emitted by the server — see web_server._stream_graph).
+    addMsg('ai', highlightCite(escapeHtml(d.text)));
+    markStepsDone(parseStepDoneFromText(d.text));
+  } else if (d.type === 'approval_request') {
+    showApprovalModal(d);
+  } else if (d.type === 'error') {
+    addMsg('error', escapeHtml(d.text));
+  }
+}
+function highlightCite(s) {
+  return s.replace(/((?:GOP-A-|EOP-E0-|AOP-10-)\d+)/g,
+    '<code onclick="showStep(\'$1\')" style="background:#234060;color:#4dd0e1;padding:1px 6px;border-radius:3px;font-size:11px;cursor:pointer" title="원문 보기">$1</code>');
+}
+async function send() {
+  const inp = document.getElementById('input');
+  const text = inp.value.trim();
+  if (!text) return;
+  inp.value = '';
+  document.getElementById('sendBtn').disabled = true;
+  addMsg('operator', escapeHtml(text));
+  try {
+    const res = await fetch('/chat/stream', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({session_id: SESSION_ID, message: text})
+    });
+    await readSSE(res, handleEvent);
+  } catch(e) { addMsg('error', 'Network error: ' + e.message); }
   document.getElementById('sendBtn').disabled = false;
-  document.getElementById('input').focus();
-  loadPlantStatus();
+  inp.focus();
 }
 
-// ── 세션 초기화 ───────────────────────────────
-async function resetSession() {
-  await fetch(`/chat/${SESSION_ID}`, {method: 'DELETE'});
-  document.getElementById('messages').innerHTML = `
-    <div class="msg system">
-      <div class="msg-avatar">⚙</div>
-      <div class="msg-bubble">대화가 초기화되었습니다.</div>
-    </div>`;
-  document.getElementById('toolLog').innerHTML = `
-    <div style="color:#333;font-size:11px;
-                text-align:center;margin-top:20px;">
-      대화를 시작하면<br>도구 호출이 표시됩니다
-    </div>`;
-}
-
-function quickSend(text) {
-  document.getElementById('input').value = text;
-  sendMessage();
-}
-function handleKey(e) {
-  if (e.key === 'Enter' && !e.shiftKey) {
-    e.preventDefault();
-    sendMessage();
+// ─────────── HITL approval modal ───────────
+let pendingApproval = null;
+function showApprovalModal(d) {
+  pendingApproval = d;
+  document.getElementById('apvStep').textContent = d.cited_step_id || '(step 미인용)';
+  document.getElementById('apvCite').textContent = d.cited_step_id || '(none)';
+  document.getElementById('apvTool').textContent = `${d.tool}(${JSON.stringify(d.args || {})})`;
+  document.getElementById('apvRationale').textContent = d.rationale || '(설명 없음)';
+  document.getElementById('apvExpected').textContent = d.expected_outcome || '(예상 결과 미기재)';
+  const cautRow = document.getElementById('apvCautionsRow');
+  const cautUl = document.getElementById('apvCautions');
+  cautUl.innerHTML = '';
+  if (Array.isArray(d.cautions) && d.cautions.length) {
+    cautRow.style.display = '';
+    d.cautions.forEach(c => {
+      const li = document.createElement('li');
+      li.textContent = c; cautUl.appendChild(li);
+    });
+    document.getElementById('apvAck').checked = false;
+    document.getElementById('apvApproveBtn').disabled = true;
+  } else {
+    cautRow.style.display = 'none';
+    document.getElementById('apvApproveBtn').disabled = false;
   }
+  document.getElementById('approvalModal').classList.add('show');
 }
-function autoResize(el) {
-  el.style.height = 'auto';
-  el.style.height = Math.min(el.scrollHeight, 120) + 'px';
+function hideApprovalModal() {
+  document.getElementById('approvalModal').classList.remove('show');
+  pendingApproval = null;
 }
-function escapeHtml(text) {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/\n/g, '<br>');
+document.addEventListener('change', e => {
+  if (e.target && e.target.id === 'apvAck') {
+    document.getElementById('apvApproveBtn').disabled = !e.target.checked;
+  }
+});
+async function approve(yes) {
+  if (!pendingApproval) return;
+  const reason = yes ? 'operator approved' : (prompt('거부 사유:', 'reject') || 'rejected');
+  hideApprovalModal();
+  addMsg('operator', yes ? '✓ 승인' : '✗ 거부 — ' + escapeHtml(reason));
+  try {
+    const res = await fetch('/chat/approve', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        session_id: SESSION_ID, approved: yes, reason: reason,
+      })
+    });
+    await readSSE(res, handleEvent);
+  } catch(e) { addMsg('error', 'approval error: ' + e.message); }
 }
+async function modifyAction() {
+  if (!pendingApproval) return;
+  const cur = JSON.stringify(pendingApproval.args || {}, null, 2);
+  const edit = prompt('수정할 인자(JSON):', cur);
+  if (edit === null) return;
+  let parsed;
+  try { parsed = JSON.parse(edit); }
+  catch(e) { alert('JSON 파싱 실패: ' + e.message); return; }
+  hideApprovalModal();
+  addMsg('operator', '✎ 인자 수정 후 승인: <code>' + escapeHtml(JSON.stringify(parsed)) + '</code>');
+  try {
+    const res = await fetch('/chat/approve', {
+      method:'POST', headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        session_id: SESSION_ID, approved: true,
+        reason: 'operator modified', modified_args: parsed,
+      })
+    });
+    await readSSE(res, handleEvent);
+  } catch(e) { addMsg('error', 'approval error: ' + e.message); }
+}
+document.getElementById('input').addEventListener('keydown', e => {
+  if (e.key==='Enter' && !e.shiftKey) { e.preventDefault(); send(); }
+});
 
-loadPlantStatus();
+// ─────────── Init ───────────
+fetch('/health').then(r=>r.json()).then(h => {
+  const b = document.getElementById('llmBadge');
+  const L = h.llm || {};
+  if (L.any_available) {
+    const n = (L.available || []).length;
+    b.textContent = `🤖 Gemini 체인 × ${n}`;
+    b.title = '체인 순서:\n' + (L.rotation || []).map((m,i) => `${i+1}. ${m}`).join('\n')
+            + '\n\n각 모델은 별도 quota 풀이라 한 모델이 한도 도달하면 자동으로 다음 모델로 폴백됩니다.';
+  } else {
+    b.textContent = '⚠ LLM 비활성 — 채팅 시도 시 안내';
+    b.className = 'badge warn';
+    const errs = L.errors || {};
+    b.title = '원인:\n' + Object.entries(errs).map(([k,v])=>`${k}: ${v}`).join('\n')
+            + '\n\n조치:\n• export GOOGLE_API_KEY=... 후 서버 재기동';
+  }
+});
+addMsg('status', '실시간 시뮬레이션 시작. 좌측 상태 패널과 연동됩니다.');
+startStateStream();
 </script>
 </body>
 </html>

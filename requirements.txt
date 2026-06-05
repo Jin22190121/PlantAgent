@@ -12,6 +12,23 @@ sentence-transformers>=3.0.0
 # ── MCP ───────────────────────────────
 mcp>=1.0.0
 
+# ── LangGraph 오케스트레이션 (Phase 1) ──
+langgraph>=0.6.0
+langgraph-checkpoint-sqlite>=2.0.0
+aiosqlite>=0.20.0
+langchain-google-genai>=2.0.0
+langchain-core>=0.3.0
+# Groq fallback — 무료 키: https://console.groq.com/keys
+langchain-groq>=0.2.0
+
+# ── 관측성 (Phase 3, env-gated) ───────
+# langfuse>=2.0.0       # LANGFUSE_*_KEY 설정 시 자동 활성화
+
+# ── 웹 서버 ───────────────────────────
+fastapi>=0.115.0
+uvicorn>=0.30.0
+httpx>=0.27.0
+
 # ── 유틸리티 ──────────────────────────
 python-dotenv>=1.0.0
 pydantic>=2.0.0
