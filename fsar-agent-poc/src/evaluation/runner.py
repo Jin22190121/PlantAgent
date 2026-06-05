@@ -257,8 +257,9 @@ def _write_markdown(result: dict, path: Path) -> None:
     lines.append("| 메트릭 | System A | System B |")
     lines.append("|---|---|---|")
     sumry = result["summary"]
-    if "A" in sumry and "B" in sumry:
-        a, b = sumry["A"], sumry["B"]
+    a = sumry.get("A", {})
+    b = sumry.get("B", {})
+    if a or b:
         keys = [
             ("token_f1_mean", "Token F1"),
             ("token_precision_mean", "Token Precision"),
@@ -273,9 +274,12 @@ def _write_markdown(result: dict, path: Path) -> None:
             ("completion_tokens_mean", "평균 출력 토큰"),
             ("cost_usd_total", "총 비용 ($)"),
         ]
+        def _fmt(v):
+            return f"{v:.4f}" if isinstance(v, (int, float)) else "—"
         for k, label in keys:
-            av, bv = a.get(k, 0), b.get(k, 0)
-            lines.append(f"| {label} | {av:.4f} | {bv:.4f} |")
+            av = a.get(k, "—") if a else "—"
+            bv = b.get(k, "—") if b else "—"
+            lines.append(f"| {label} | {_fmt(av)} | {_fmt(bv)} |")
     lines.append("")
 
     lines.append("## 카테고리별 Token F1")
