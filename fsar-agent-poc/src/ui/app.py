@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 import pandas as pd
@@ -10,6 +11,17 @@ import streamlit as st
 
 from src.agents.factory import get_agent
 from src.config import load_settings, resolve_path
+from src.evaluation.human_eval import (
+    ACCURACY_KO,
+    ACCURACY_LEVELS,
+    HumanEvalRecord,
+    aggregate_stats,
+    append_record,
+    export_csv,
+    export_markdown,
+    load_records,
+    log_path,
+)
 from src.evaluation.runner import run as run_eval
 from src.retrieval.retriever import count as vector_count
 
@@ -207,11 +219,217 @@ def _render_summary(result: dict):
         st.dataframe(df[[c for c in cols_show if c in df.columns]], use_container_width=True)
 
 
+def page_human_eval():
+    """사용자가 PDF로 정답을 알고 두 시스템 답변을 직접 채점하는 대화형 페이지."""
+    st.title("인간 평가 — 대화형 채점")
+    st.caption(
+        "사용자가 PDF로 정답을 학습한 뒤, 두 시스템(A·B)의 답변을 직접 채점합니다. "
+        "같은 질문에 두 시스템이 동시 응답하며 라벨이 표시됩니다."
+    )
+
+    if vector_count() == 0:
+        st.error("ChromaDB에 인덱스가 없습니다. 먼저 인덱싱을 실행하세요.")
+        return
+
+    # 세션 초기화
+    if "he_messages" not in st.session_state:
+        st.session_state.he_messages = []
+    if "he_category" not in st.session_state:
+        st.session_state.he_category = "사실검색"
+
+    # ── 사이드바: 설정·통계·내보내기 ─────────────────
+    with st.sidebar:
+        st.markdown("### 인간 평가 설정")
+        st.session_state.he_category = st.selectbox(
+            "다음 질문의 카테고리",
+            ["사실검색", "위치지정", "요약", "비교", "기타"],
+            index=["사실검색", "위치지정", "요약", "비교", "기타"].index(
+                st.session_state.he_category
+            ),
+        )
+        if st.button("대화 리셋", use_container_width=True):
+            st.session_state.he_messages = []
+            st.rerun()
+
+        st.markdown("---")
+        st.markdown("### 누적 통계")
+        records = load_records()
+        stats = aggregate_stats(records)
+        st.metric("누적 평가 수", stats.get("n_total", 0))
+        for sys_key, s in stats.get("by_system", {}).items():
+            label = "Gemini (A)" if sys_key == "A" else "EXAONE (B)"
+            with st.expander(f"{label} — {s['n']}건", expanded=False):
+                st.metric("정답률", f"{s['accuracy_rate']:.1%}")
+                st.metric("부분정답률", f"{s['partial_rate']:.1%}")
+                st.metric("오답률", f"{s['wrong_rate']:.1%}")
+                st.metric("평균 평점", f"{s['rating_mean']:.2f} / 5")
+                st.metric("평균 지연", f"{s['latency_ms_mean']:.0f} ms")
+
+        st.markdown("---")
+        st.markdown("### 내보내기")
+        export_dir = resolve_path(cfg["paths"]["report_dir"])
+        if st.button("CSV 내보내기", use_container_width=True):
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out = export_csv(records, export_dir / f"human_eval_export_{ts}.csv")
+            st.success(f"저장: {out.name}")
+        if st.button("Markdown 리포트 내보내기", use_container_width=True):
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            out = export_markdown(
+                records, stats, export_dir / f"human_eval_export_{ts}.md"
+            )
+            st.success(f"저장: {out.name}")
+        st.caption(f"로그 파일: `{log_path()}`")
+
+    # ── 메인: 대화 히스토리 + 입력 ──────────────────
+    for i, msg in enumerate(st.session_state.he_messages):
+        if msg["role"] == "user":
+            with st.chat_message("user"):
+                cat = msg.get("category", "")
+                if cat:
+                    st.markdown(f"_[{cat}]_")
+                st.markdown(msg["content"])
+        else:
+            _render_assistant_message(i, msg)
+
+    if q := st.chat_input("질문을 입력하세요 (예: 신고리 3,4호기의 정격 출력은?)"):
+        st.session_state.he_messages.append(
+            {
+                "role": "user",
+                "content": q,
+                "category": st.session_state.he_category,
+            }
+        )
+        for sys_key in ("A", "B"):
+            with st.spinner(f"System {sys_key} 응답 생성 중..."):
+                try:
+                    agent = _agent(sys_key)
+                    resp = agent.ask(q)
+                    payload = {
+                        "answer": resp.answer,
+                        "retrieved_pages": resp.cited_pages,
+                        "retrieved_detail": [
+                            {
+                                "page": c.page,
+                                "section": c.section,
+                                "section_title": c.section_title,
+                                "score": c.score,
+                                "preview": c.text[:200],
+                            }
+                            for c in resp.retrieved
+                        ],
+                        "latency_ms": resp.latency_ms,
+                        "prompt_tokens": resp.prompt_tokens,
+                        "completion_tokens": resp.completion_tokens,
+                    }
+                    error = None
+                except Exception as e:
+                    payload = {
+                        "answer": f"[ERROR] {e}",
+                        "retrieved_pages": [],
+                        "retrieved_detail": [],
+                        "latency_ms": 0.0,
+                        "prompt_tokens": 0,
+                        "completion_tokens": 0,
+                    }
+                    error = str(e)
+            st.session_state.he_messages.append(
+                {
+                    "role": "assistant",
+                    "system": sys_key,
+                    "category": st.session_state.he_category,
+                    "question": q,
+                    "response": payload,
+                    "error": error,
+                    "scored": False,
+                    "scores": None,
+                }
+            )
+        st.rerun()
+
+
+def _render_assistant_message(i: int, msg: dict):
+    sys_key = msg["system"]
+    sys_name = "Gemini" if sys_key == "A" else "EXAONE"
+    model = cfg["system_a" if sys_key == "A" else "system_b"]["model"]
+    resp = msg["response"]
+    with st.chat_message("assistant"):
+        st.markdown(f"**System {sys_key} — {sys_name}** · `{model}`")
+        st.write(resp["answer"])
+
+        m1, m2, m3 = st.columns(3)
+        m1.metric("지연", f"{resp['latency_ms']:.0f} ms")
+        m2.metric("입력 토큰", resp["prompt_tokens"])
+        m3.metric("출력 토큰", resp["completion_tokens"])
+
+        detail = resp.get("retrieved_detail", [])
+        if detail:
+            with st.expander(f"검색 청크 ({len(detail)}개) · 인용 페이지 {resp['retrieved_pages']}"):
+                for c in detail:
+                    st.markdown(
+                        f"- **p.{c['page']} §{c['section']}** "
+                        f"({c['section_title']}) — score={c['score']:.3f}"
+                    )
+                    st.caption(c["preview"] + ("..." if len(c["preview"]) >= 200 else ""))
+
+        if msg.get("scored"):
+            sc = msg["scores"]
+            st.success(
+                f"✓ 정확성: **{ACCURACY_KO.get(sc['accuracy'], sc['accuracy'])}** · "
+                f"평점: **{sc['rating']}/5**"
+            )
+            if sc.get("note"):
+                st.caption(f"코멘트: {sc['note']}")
+            return
+
+        if msg.get("error"):
+            st.warning("에러 발생 — 채점은 'na'로 자동 저장하거나 건너뛰세요.")
+
+        with st.form(f"score_form_{i}", clear_on_submit=False):
+            acc = st.radio(
+                "정확성",
+                ACCURACY_LEVELS,
+                format_func=lambda x: ACCURACY_KO[x],
+                horizontal=True,
+                key=f"acc_{i}",
+            )
+            rating = st.slider("종합 평점 (1=나쁨, 5=완벽)", 1, 5, 3, key=f"rat_{i}")
+            note = st.text_input("코멘트 (선택)", key=f"note_{i}")
+            submitted = st.form_submit_button("채점 저장", type="primary")
+            if submitted:
+                record = HumanEvalRecord(
+                    timestamp=datetime.now().isoformat(timespec="seconds"),
+                    question=msg.get("question", ""),
+                    category=msg.get("category", "기타"),
+                    system=sys_key,
+                    system_model=model,
+                    answer=resp["answer"],
+                    retrieved_pages=resp["retrieved_pages"],
+                    latency_ms=resp["latency_ms"],
+                    prompt_tokens=resp["prompt_tokens"],
+                    completion_tokens=resp["completion_tokens"],
+                    accuracy=acc,
+                    rating=int(rating),
+                    note=note or "",
+                )
+                append_record(record)
+                st.session_state.he_messages[i]["scored"] = True
+                st.session_state.he_messages[i]["scores"] = {
+                    "accuracy": acc,
+                    "rating": int(rating),
+                    "note": note or "",
+                }
+                st.rerun()
+
+
 def main():
     with st.sidebar:
         st.markdown("### FSAR Agent PoC")
         st.caption("Gemini vs EXAONE · 신고리 3,4호기 FSAR 1장")
-        page = st.radio("페이지", ["질의 비교", "정량 평가"], index=0)
+        page = st.radio(
+            "페이지",
+            ["질의 비교", "정량 평가", "인간 평가 (대화형)"],
+            index=0,
+        )
         st.markdown("---")
         st.caption(
             f"임베딩: `{cfg['embedding']['model_name']}`\n\n"
@@ -222,8 +440,10 @@ def main():
 
     if page == "질의 비교":
         page_query()
-    else:
+    elif page == "정량 평가":
         page_eval()
+    else:
+        page_human_eval()
 
 
 if __name__ == "__main__":

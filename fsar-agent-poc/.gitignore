@@ -6,6 +6,9 @@ data/raw/*.pdf
 data/processed/*.jsonl
 data/eval/report_*.md
 data/eval/report_*.csv
+# 인간 평가 내보내기 파일은 derived(human_eval.jsonl이 source of truth) → 제외
+data/eval/human_eval_export_*.csv
+data/eval/human_eval_export_*.md
 vectorstore/
 .streamlit/
 .DS_Store

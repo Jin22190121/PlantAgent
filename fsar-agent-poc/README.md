@@ -62,9 +62,13 @@ bash scripts/run_eval.sh --systems B --limit 6
 python scripts/merge_reports.py \
     $(ls -t data/eval/report_*.json | grep -v merged | grep -v partial | head -2)
 
-# 6) Streamlit 대시보드 (정성 비교 UI)
+# 6) Streamlit 대시보드 (정성 비교 + 정량 평가 + 인간 채점 UI)
 bash scripts/run_ui.sh
 # → http://localhost:8501
+# 3개 페이지:
+#   - 질의 비교: 즉시 A·B 답변 비교
+#   - 정량 평가: 골드셋 기반 자동 메트릭
+#   - 인간 평가(대화형): 사용자가 직접 채점, 누적 통계·CSV/MD 내보내기
 ```
 
 ## 3. 디렉토리 구조
@@ -175,12 +179,13 @@ fsar-agent-poc/
 |---|---|
 | `src/evaluation/metrics.py` | **메트릭 정의**. KoNLPy Okt(또는 Mecab) 형태소 기반 `token_prf1` (Precision·Recall·F1), `exact_match`, `keyword_hit_rate` (substring/morph_exact 모드), `retrieval_pr` (Recall@k·Precision@k). 형태소 분석기 미설치 시 정규식 fallback |
 | `src/evaluation/runner.py` | **평가 러너**. 골드셋 로드 → 시스템별 순회 → 문항당 `agent.ask` → 메트릭 계산 → JSON/CSV/MD 리포트 생성. 주요 기능: ①**RPM 페이싱** (시스템별 `request_pacing_sec`), ②**부분 저장** (`report_<TS>.partial.json`을 매 문항 후 덮어쓰기), ③**RPD 감지 시 즉시 중단**, ④**`--limit N`** 인자 (앞 N개만 평가), ⑤**문항별 비교 표 + 자동 코멘트**(승부 카운트·평균 지연·키워드 적중률·요약 판정) |
+| `src/evaluation/human_eval.py` | **인간 채점 로그 관리**. `HumanEvalRecord` 데이터클래스, `append_record/load_records/aggregate_stats/export_csv/export_markdown`. 저장: `data/eval/human_eval.jsonl` (소스, git 추적). 다차원 채점(정확성 3단계 + 평점 1~5 + 코멘트) 및 시스템·카테고리별 집계 |
 
 ### 4.8 UI (`src/ui/`)
 
 | 파일 | 내용 |
 |---|---|
-| `src/ui/app.py` | **Streamlit 비교 대시보드**. 두 페이지: ①**질의 비교** (동일 질문을 A·B에 동시 입력 → 좌우 답변·지연·토큰·검색 청크 미리보기 병기), ②**정량 평가** (`runner.run()` 호출하고 결과 차트로 시각화, 기존 `report_*.json` 로드 가능). 사이드바에 통제 변수 요약 표시 |
+| `src/ui/app.py` | **Streamlit 비교 대시보드**. 3개 페이지: ①**질의 비교** (동일 질문을 A·B에 동시 입력 → 좌우 답변·지연·토큰·검색 청크 미리보기 병기), ②**정량 평가** (`runner.run()` 호출하고 결과 차트로 시각화, 기존 `report_*.json` 로드 가능), ③**인간 평가(대화형)** — 사용자가 PDF로 정답을 알고 두 시스템 답변을 직접 채점. 채팅 스레드, 다차원 채점(정확성/평점/코멘트), 누적 통계 사이드바, 검색 청크 미리보기, CSV/MD 내보내기 |
 
 ### 4.9 공통 모듈 (`src/`)
 
