@@ -2,8 +2,15 @@
 from __future__ import annotations
 
 import json
+import sys
 from datetime import datetime
 from pathlib import Path
+
+# `streamlit run src/ui/app.py`로 직접 실행될 때 프로젝트 루트가
+# sys.path에 없으므로 `from src.X import ...` 가 실패한다. 명시적으로 추가.
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
 
 import pandas as pd
 import plotly.express as px
