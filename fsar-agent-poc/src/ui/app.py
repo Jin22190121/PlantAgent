@@ -288,6 +288,11 @@ def page_human_eval():
         st.caption(f"로그 파일: `{log_path()}`")
 
     # ── 메인: 대화 히스토리 + 입력 ──────────────────
+    st.info(
+        "💡 질문하면 **System A(Gemini)가 먼저 응답**합니다. "
+        "그 다음 같은 질문을 **System B(EXAONE)에도 보내기** 버튼으로 B 응답을 받을 수 있습니다 "
+        "(B는 CPU 환경에서 2~4분 소요)."
+    )
     for i, msg in enumerate(st.session_state.he_messages):
         if msg["role"] == "user":
             with st.chat_message("user"):
@@ -298,59 +303,117 @@ def page_human_eval():
         else:
             _render_assistant_message(i, msg)
 
+    # 최신 turn에 A 응답은 있지만 B 응답이 없으면 트리거 버튼 표시
+    _render_b_trigger_if_needed()
+
     if q := st.chat_input("질문을 입력하세요 (예: 신고리 3,4호기의 정격 출력은?)"):
+        turn = _next_turn()
         st.session_state.he_messages.append(
             {
                 "role": "user",
                 "content": q,
                 "category": st.session_state.he_category,
+                "turn": turn,
             }
         )
-        for sys_key in ("A", "B"):
-            with st.spinner(f"System {sys_key} 응답 생성 중..."):
-                try:
-                    agent = _agent(sys_key)
-                    resp = agent.ask(q)
-                    payload = {
-                        "answer": resp.answer,
-                        "retrieved_pages": resp.cited_pages,
-                        "retrieved_detail": [
-                            {
-                                "page": c.page,
-                                "section": c.section,
-                                "section_title": c.section_title,
-                                "score": c.score,
-                                "preview": c.text[:200],
-                            }
-                            for c in resp.retrieved
-                        ],
-                        "latency_ms": resp.latency_ms,
-                        "prompt_tokens": resp.prompt_tokens,
-                        "completion_tokens": resp.completion_tokens,
+        # A만 즉시 실행 (빠름). B는 사용자가 버튼으로 트리거.
+        a_msg = _run_agent_message("A", q, st.session_state.he_category, turn)
+        st.session_state.he_messages.append(a_msg)
+        st.rerun()
+
+
+def _next_turn() -> int:
+    """다음 turn 번호 = 기존 user 메시지 수."""
+    return sum(1 for m in st.session_state.he_messages if m["role"] == "user")
+
+
+def _run_agent_message(sys_key: str, question: str, category: str, turn: int) -> dict:
+    """에이전트 호출 후 메시지 dict 반환. 에러 발생 시 [ERROR] 답변으로 채움."""
+    spinner_text = (
+        f"System {sys_key} 응답 생성 중..."
+        + (" (CPU에서 2~4분 소요)" if sys_key == "B" else "")
+    )
+    with st.spinner(spinner_text):
+        try:
+            agent = _agent(sys_key)
+            resp = agent.ask(question)
+            payload = {
+                "answer": resp.answer,
+                "retrieved_pages": resp.cited_pages,
+                "retrieved_detail": [
+                    {
+                        "page": c.page,
+                        "section": c.section,
+                        "section_title": c.section_title,
+                        "score": c.score,
+                        "preview": c.text[:200],
                     }
-                    error = None
-                except Exception as e:
-                    payload = {
-                        "answer": f"[ERROR] {e}",
-                        "retrieved_pages": [],
-                        "retrieved_detail": [],
-                        "latency_ms": 0.0,
-                        "prompt_tokens": 0,
-                        "completion_tokens": 0,
-                    }
-                    error = str(e)
-            st.session_state.he_messages.append(
-                {
-                    "role": "assistant",
-                    "system": sys_key,
-                    "category": st.session_state.he_category,
-                    "question": q,
-                    "response": payload,
-                    "error": error,
-                    "scored": False,
-                    "scores": None,
-                }
-            )
+                    for c in resp.retrieved
+                ],
+                "latency_ms": resp.latency_ms,
+                "prompt_tokens": resp.prompt_tokens,
+                "completion_tokens": resp.completion_tokens,
+            }
+            error = None
+        except Exception as e:
+            payload = {
+                "answer": f"[ERROR] {e}",
+                "retrieved_pages": [],
+                "retrieved_detail": [],
+                "latency_ms": 0.0,
+                "prompt_tokens": 0,
+                "completion_tokens": 0,
+            }
+            error = str(e)
+    return {
+        "role": "assistant",
+        "system": sys_key,
+        "category": category,
+        "question": question,
+        "turn": turn,
+        "response": payload,
+        "error": error,
+        "scored": False,
+        "scores": None,
+    }
+
+
+def _render_b_trigger_if_needed():
+    """최신 turn에 A는 있는데 B가 없으면 'B에 동일 질문 보내기' 버튼 노출."""
+    msgs = st.session_state.he_messages
+    if not msgs:
+        return
+    # 가장 최근 user의 turn
+    last_turn = None
+    last_user = None
+    for m in reversed(msgs):
+        if m["role"] == "user":
+            last_turn = m.get("turn")
+            last_user = m
+            break
+    if last_turn is None:
+        return
+
+    has_a = any(
+        m["role"] == "assistant" and m.get("system") == "A" and m.get("turn") == last_turn
+        for m in msgs
+    )
+    has_b = any(
+        m["role"] == "assistant" and m.get("system") == "B" and m.get("turn") == last_turn
+        for m in msgs
+    )
+    if not has_a or has_b:
+        return
+
+    label = "▶ 같은 질문을 System B (EXAONE)에도 보내기 — 응답 약 2~4분"
+    if st.button(label, type="primary", use_container_width=True, key=f"trigger_b_{last_turn}"):
+        b_msg = _run_agent_message(
+            "B",
+            last_user["content"],
+            last_user.get("category", "기타"),
+            last_turn,
+        )
+        st.session_state.he_messages.append(b_msg)
         st.rerun()
 
 
